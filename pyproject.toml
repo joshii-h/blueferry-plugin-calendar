@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blueferry-calendar"
+version = "0.1.0"
+description = "BlueFerry plugin: today's and tomorrow's events from a CalDAV server"
+readme = "README.md"
+license = {text = "GPL-2.0-or-later"}
+requires-python = ">=3.10"
+# Only blueferry.plugin_api is used from BlueFerry. dbus-python, PyGObject
+# and libsecret come from the distribution (BlueFerry creates the plugin's
+# venv with --system-site-packages).
+# The ref is a branch for now; switch it to a BlueFerry release tag.
+dependencies = [
+  "blueferry-plugin-api @ git+https://github.com/joshii-h/blueferry@local/battlestation#subdirectory=plugin-api",
+  "icalendar>=6.0",
+  "recurring-ical-events>=3.3",
+  "x-wr-timezone>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.5"]
+
+[project.urls]
+Homepage = "https://github.com/joshii-h/blueferry-plugin-calendar"
+Source = "https://github.com/joshii-h/blueferry-plugin-calendar"
+
+[project.scripts]
+blueferry-calendar = "blueferry_calendar.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"blueferry_calendar" = ["*.plugin"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+ignore = ["B904", "RUF001", "RUF005"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["blueferry_calendar"]
+known-third-party = ["blueferry"]

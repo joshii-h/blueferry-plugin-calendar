@@ -1,0 +1,49 @@
+[BlueFerry Plugin]
+Id=io.weirdware.blueferry.calendar
+Name=Calendar
+Version=0.1.0
+ApiVersion=1.2
+MinBlueFerry=0.8
+Capabilities=card;notify;
+Homepage=https://github.com/joshii-h/blueferry-plugin-calendar
+Source=https://github.com/joshii-h/blueferry-plugin-calendar
+Exec=blueferry-calendar serve
+Cli=blueferry-calendar
+Alias=calendar
+
+[Config url]
+Label=CalDAV server
+Type=url
+Required=true
+Help=For example https://caldav.icloud.com, https://cloud.example.org or https://dav.example.org
+
+[Config username]
+Label=User name
+Type=string
+Required=true
+Help=For iCloud the Apple Account e-mail address
+
+[Config password]
+Label=Password
+Type=secret
+Required=true
+Help=For iCloud an app-specific password (account.apple.com > Sign-In and Security)
+
+[Config calendars]
+Label=Calendars
+Type=string
+Help=Comma-separated calendar names; empty shows all. List them with: blueferry plugins calendar calendars
+
+[Config range]
+Label=Show
+Type=choice
+Choices=today;today_tomorrow
+Default=today_tomorrow
+Help=Events of today only, or of today and tomorrow
+
+[Config reminder]
+Label=Reminder
+Type=choice
+Choices=off;10;15
+Default=off
+Help=A desktop notification this many minutes before an event starts
