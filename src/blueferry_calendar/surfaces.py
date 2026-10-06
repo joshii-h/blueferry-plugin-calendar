@@ -1,9 +1,9 @@
 """Plugin1 v1.2 surfaces (capabilities ``card`` and ``notify``), plugin side.
 
-Written against the shared spec PLUGIN-SURFACES-v1.2. Interface names and
-limits come from ``blueferry.plugin_api`` when it already ships them
-(blueferry-plugin-api 1.2); the fallbacks below follow the naming of the
-existing capability interfaces (``Photos1``).
+Written against the shared spec PLUGIN-SURFACES-v1.2. All v1.2 methods and
+signals (GetCardItems, InvokeAction, CardChanged, Notify) live on the
+existing ``io.weirdware.BlueFerry.Plugin1`` interface at the plugin's object
+path; the manifest's capabilities decide which of them the host calls.
 """
 from __future__ import annotations
 
@@ -13,8 +13,7 @@ import re
 import blueferry.plugin_api as api
 from blueferry.plugin_api.manifest import ManifestError, PluginManifest, parse_manifest
 
-CARD_INTERFACE: str = getattr(api, "CARD_INTERFACE", "io.weirdware.BlueFerry.Card1")
-NOTIFY_INTERFACE: str = getattr(api, "NOTIFY_INTERFACE", "io.weirdware.BlueFerry.Notify1")
+SURFACE_INTERFACE: str = api.PLUGIN_INTERFACE
 CAPABILITY_CARD = "card"
 CAPABILITY_NOTIFY = "notify"
 

@@ -305,3 +305,9 @@ def test_keyring_fallback_file_is_private(tmp_path) -> None:
     assert store.password(store.load()) == PASSWORD
     store.forget()
     assert store.load() is None and not store.key_path.exists()
+
+
+def test_surfaces_live_on_plugin1() -> None:
+    """Spec "D-Bus placement": no Card1/Notify1, everything on Plugin1."""
+    for name in ("GetCardItems", "InvokeAction", "CardChanged", "Notify"):
+        assert getattr(CalendarService, name)._dbus_interface == "io.weirdware.BlueFerry.Plugin1"

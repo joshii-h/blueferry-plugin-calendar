@@ -28,11 +28,10 @@ from blueferry_calendar.cache import AgendaCache, Snapshot
 from blueferry_calendar.caldav import CalDavClient, CalDavError, CalendarInfo, normalize_url
 from blueferry_calendar.settings import Settings, SettingsError, SettingsStore, split_names
 from blueferry_calendar.surfaces import (
-    CARD_INTERFACE,
     ID,
     MAX_ITEMS,
-    NOTIFY_INTERFACE,
     NOTIFY_ITEM,
+    SURFACE_INTERFACE,
     action,
     action_reply,
     card_item,
@@ -551,7 +550,7 @@ class CalendarService(PluginService):
         self.CardChanged()
 
     @dbus.service.method(
-        CARD_INTERFACE, in_signature="", out_signature="s",
+        SURFACE_INTERFACE, in_signature="", out_signature="s",
         async_callbacks=("reply", "error"), sender_keyword="sender",
     )
     def GetCardItems(self, reply, error, sender=None) -> None:
@@ -559,7 +558,7 @@ class CalendarService(PluginService):
         self.run_async(lambda: card_reply(self.card_items()), reply, error)
 
     @dbus.service.method(
-        CARD_INTERFACE, in_signature="sss", out_signature="s",
+        SURFACE_INTERFACE, in_signature="sss", out_signature="s",
         async_callbacks=("reply", "error"), sender_keyword="sender",
     )
     def InvokeAction(self, item_id, action_id, args_json, reply, error, sender=None) -> None:
@@ -567,13 +566,13 @@ class CalendarService(PluginService):
         item, act, args = str(item_id), str(action_id), parse_args(str(args_json))
         self.run_async(lambda: self.invoke(item, act, args), reply, error)
 
-    @dbus.service.signal(CARD_INTERFACE, signature="")
+    @dbus.service.signal(SURFACE_INTERFACE, signature="")
     def CardChanged(self) -> None:
         """Content-free: the core calls GetCardItems again."""
 
     # ---- D-Bus: capability notify ---------------------------------------------------------
 
-    @dbus.service.signal(NOTIFY_INTERFACE, signature="sssss")
+    @dbus.service.signal(SURFACE_INTERFACE, signature="sssss")
     def Notify(self, title, body, icon, action_label, action_id) -> None:
         """A reminder; the core shows it under its notification policy."""
 
