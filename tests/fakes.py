@@ -8,6 +8,7 @@ the servers' documented behaviour, not captured from live accounts.
 ``{{ics:NAME}}`` in a body is replaced by ``fixtures/ics/NAME`` (XML-escaped),
 ``{{raw:NAME}}`` by the raw text (for CDATA sections).
 
+``FakeSecret`` and ``FakeHost`` come from ``blueferry_plugin_kit.testing``;
 ``FakeHost`` plays the BlueFerry core of PLUGIN-SURFACES-v1.2: it calls
 ``GetCardItems``/``InvokeAction`` like the core would, checks every reply
 against the spec, and records the content-free ``CardChanged`` and the
@@ -25,7 +26,9 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from blueferry.plugin_api.manifest import parse_manifest
+from blueferry_plugin_kit import testing
 from blueferry_plugin_kit.dav.caldav import Response
+from blueferry_plugin_kit.testing import FakeSecret  # noqa: F401 - used by the tests
 
 from blueferry_calendar import manifest_text
 
@@ -118,134 +121,33 @@ class FakeServer:
         return [url for m, url, *_ in self.requests if method in (None, m)]
 
 
-class FakeSecret:
-    """Enough of gi.repository.Secret for SettingsStore."""
+class FakeHost(testing.FakeHost):
+    """The kit's v1.2 host with the names these tests use, plus the checks
+    the kit leaves out: unique item ids, no empty titles or labels, and a
+    notification's action label and id come together."""
 
-    COLLECTION_DEFAULT = "default"
+    def __init__(self, service, cache_dir: Path) -> None:
+        super().__init__(service, cache_roots=[cache_dir])
 
-    class SchemaFlags:
-        NONE = 0
+    def _on_notify(self, *args) -> None:
+        if len(args) == 5:
+            title, _body, _icon, label, action_id = args
+            _check(bool(title), "notify title")
+            _check(bool(label) == bool(action_id), "action label and id come together")
+        super()._on_notify(*args)
 
-    class SchemaAttributeType:
-        STRING = "string"
+    def _call(self, method, *args):
+        return self.call(method, *args)
 
-    class Schema:
-        @staticmethod
-        def new(name, flags, attributes):
-            return name
-
-    def __init__(self, *, fail: bool = False) -> None:
-        self.items: dict[tuple, str] = {}
-        self.fail = fail
-
-    def password_store_sync(self, schema, attributes, collection, label, password, cancel):
-        if self.fail:
-            raise RuntimeError("no keyring")
-        self.items[(schema, tuple(sorted(attributes.items())))] = password
-        return True
-
-    def password_lookup_sync(self, schema, attributes, cancel):
-        return self.items.get((schema, tuple(sorted(attributes.items()))))
-
-    def password_clear_sync(self, schema, attributes, cancel):
-        return self.items.pop((schema, tuple(sorted(attributes.items()))), None) is not None
-
-
-# ---- the core's side of PLUGIN-SURFACES-v1.2 ----------------------------------------
-
-_ICON = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
-_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-
-
-class SpecViolation(AssertionError):
-    pass
+    def card(self) -> list[dict]:
+        items = self.card_items()
+        _check(len({item["id"] for item in items}) == len(items), "item ids unique")
+        for item in items:
+            _check(bool(item["title"]), "title")
+            _check(all(act["label"] for act in item["actions"]), "label")
+        return items
 
 
 def _check(condition: bool, what: str) -> None:
     if not condition:
-        raise SpecViolation(what)
-
-
-def check_card_reply(text: str) -> list[dict]:
-    reply = json.loads(text)
-    _check(isinstance(reply, dict) and set(reply) == {"items"}, "reply is {items: [...]}")
-    items = reply["items"]
-    _check(isinstance(items, list) and len(items) <= 8, "at most 8 items")
-    ids = set()
-    for item in items:
-        _check(set(item) == {"id", "icon", "title", "subtitle", "actions"}, f"item keys {item}")
-        _check(isinstance(item["id"], str) and _ID.fullmatch(item["id"]), "item id")
-        _check(item["id"] not in ids, "item ids unique")
-        ids.add(item["id"])
-        _check(isinstance(item["icon"], str) and _ICON.fullmatch(item["icon"]), "icon name")
-        _check(isinstance(item["title"], str) and 0 < len(item["title"]) <= 80, "title")
-        _check(item["subtitle"] is None or (
-            isinstance(item["subtitle"], str) and len(item["subtitle"]) <= 160), "subtitle")
-        _check(isinstance(item["actions"], list) and len(item["actions"]) <= 3, "≤3 actions")
-        for act in item["actions"]:
-            _check(set(act) == {"id", "label", "icon", "kind"}, "action keys")
-            _check(isinstance(act["id"], str) and _ID.fullmatch(act["id"]), "action id")
-            _check(isinstance(act["label"], str) and 0 < len(act["label"]) <= 40, "label")
-            _check(act["icon"] is None or _ICON.fullmatch(act["icon"]), "action icon")
-            _check(act["kind"] in ("button", "primary"), "action kind")
-    return items
-
-
-def check_action_reply(text: str, cache_dir: Path) -> dict:
-    reply = json.loads(text)
-    _check(isinstance(reply, dict) and set(reply) == {"ok", "message", "open_uri"},
-           "reply is {ok, message, open_uri}")
-    _check(isinstance(reply["ok"], bool), "ok is a bool")
-    _check(reply["message"] is None or isinstance(reply["message"], str), "message")
-    uri = reply["open_uri"]
-    if uri is not None:
-        parts = urllib.parse.urlsplit(uri)
-        if parts.scheme == "file":
-            _check(Path(parts.path).resolve().is_relative_to(cache_dir.resolve()),
-                   "file:// only below the plugin cache")
-        else:
-            _check(parts.scheme in ("http", "https") and bool(parts.hostname),
-                   "open_uri is http(s)")
-    return reply
-
-
-class FakeHost:
-    def __init__(self, service, cache_dir: Path) -> None:
-        self.service = service
-        self.cache_dir = cache_dir
-        self.card_changed = 0
-        self.notifications: list[tuple[str, str, str, str, str]] = []
-        service.CardChanged = self._on_card_changed
-        service.Notify = self._on_notify
-
-    def _on_card_changed(self, *args) -> None:
-        _check(args == (), "CardChanged carries no content")
-        self.card_changed += 1
-
-    def _on_notify(self, *args) -> None:
-        _check(len(args) == 5 and all(isinstance(a, str) for a in args), "Notify(sssss)")
-        title, _body, icon, label, action_id = args
-        _check(bool(title) and _ICON.fullmatch(icon) is not None, "notify title and icon")
-        _check(bool(label) == bool(action_id), "action label and id come together")
-        self.notifications.append(args)
-
-    def _call(self, method, *args):
-        outcome: dict = {}
-        getattr(self.service, method)(
-            *args, reply=lambda value: outcome.setdefault("reply", value),
-            error=lambda failure: outcome.setdefault("error", failure), sender=":1.host",
-        )
-        if "error" in outcome:
-            raise outcome["error"]
-        return outcome["reply"]
-
-    def card(self) -> list[dict]:
-        return check_card_reply(self._call("GetCardItems"))
-
-    def invoke(self, item_id: str, action_id: str, args: str = "{}") -> dict:
-        return check_action_reply(self._call("InvokeAction", item_id, action_id, args),
-                                  self.cache_dir)
-
-    def click_notification(self, index: int = -1) -> dict:
-        action_id = self.notifications[index][4]
-        return self.invoke("notify", action_id, "{}")
+        raise testing.SpecViolation(what)
