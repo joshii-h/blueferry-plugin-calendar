@@ -34,6 +34,12 @@ Label=Allowed hosts
 Type=string
 Help=Other hosts that may receive the login, comma-separated (iCloud: the pNN-caldav.icloud.com the check names); empty allows only the server's own host
 
+[Config use_system_proxy]
+Label=Use the system proxy
+Type=bool
+Default=false
+Help=Off connects directly; on sends the requests (and the login) through http(s)_proxy from the environment
+
 [Config calendars]
 Label=Calendars
 Type=string

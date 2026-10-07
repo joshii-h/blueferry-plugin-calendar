@@ -50,6 +50,8 @@ class Settings:
     # Hosts the login may go to, confirmed at setup (iCloud's partition
     # host, say). Missing in older configs: then only the URL's own host.
     hosts: tuple[str, ...] = ()
+    # Off: connect directly, ignoring http(s)_proxy from the environment.
+    use_system_proxy: bool = False
 
     @property
     def reminder_minutes(self) -> int:
@@ -136,6 +138,7 @@ class SettingsStore:
             range=raw.get("range") if raw.get("range") in RANGES else "today_tomorrow",
             reminder=raw.get("reminder") if raw.get("reminder") in REMINDERS else "off",
             hosts=tuple(h.lower() for h in hosts if isinstance(h, str) and 0 < len(h) <= 253),
+            use_system_proxy=raw.get("use_system_proxy") is True,
         )
 
     def save(self, settings: Settings, password: str, *, prefer_keyring: bool = True) -> str:
@@ -155,7 +158,7 @@ class SettingsStore:
             "url": settings.url, "username": settings.username,
             "key_store": settings.key_store, "calendars": list(settings.calendars),
             "range": settings.range, "reminder": settings.reminder,
-            "hosts": list(settings.hosts),
+            "hosts": list(settings.hosts), "use_system_proxy": settings.use_system_proxy,
         }, indent=2) + "\n")
 
     def password(self, settings: Settings) -> str:

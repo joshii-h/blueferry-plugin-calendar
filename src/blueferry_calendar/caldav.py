@@ -25,6 +25,7 @@ Errors are short tokens; nothing a server sends is logged.
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import ipaddress
 import os
@@ -145,17 +146,23 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # the client follows redirects itself, keeping the method
 
 
-_opener = urllib.request.build_opener(_NoRedirect)
+# Without an explicit ProxyHandler, urllib takes http(s)_proxy from the
+# environment, and the login (Basic or Digest) would pass through whatever
+# proxy the session happens to have. Direct unless the user opts in.
+_direct = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
 
 def urllib_send(
     method: str, url: str, headers: Mapping[str, str], body: bytes | None, timeout: float,
+    *, proxy: bool = False,
 ) -> Response:
     request = urllib.request.Request(  # nosec B310 - scheme checked by the caller
         url, data=body, method=method, headers=dict(headers),
     )
+    # The default ProxyHandler reads the environment when it is built.
+    opener = urllib.request.build_opener(_NoRedirect) if proxy else _direct
     try:
-        reply = _opener.open(request, timeout=timeout)  # nosec B310
+        reply = opener.open(request, timeout=timeout)  # nosec B310
     except urllib.error.HTTPError as error:
         reply = error
     try:
@@ -340,14 +347,14 @@ def _utc(value: datetime) -> str:
 class CalDavClient:
     def __init__(
         self, url: str, username: str, password: str, *, hosts: tuple[str, ...] = (),
-        send: Send = urllib_send, timeout: float = TIMEOUT_SEC,
+        use_proxy: bool = False, send: Send | None = None, timeout: float = TIMEOUT_SEC,
     ) -> None:
         self.url = normalize_url(url)
         # The configured host always; others only when the user allowed them.
         self.hosts = frozenset({host_of(self.url), *(h.lower().rstrip(".") for h in hosts)})
         self.seen_hosts: set[str] = set()
         self._auth = _Auth(username, password)
-        self._send = send
+        self._send = send or functools.partial(urllib_send, proxy=use_proxy)
         self._timeout = timeout
 
     def _check(self, url: str) -> None:

@@ -128,7 +128,8 @@ def extra_hosts(settings: Settings) -> tuple[str, ...]:
 def connect(
     client_factory: Callable[..., CalDavClient], settings: Settings, password: str,
 ) -> CalDavClient:
-    return client_factory(settings.url, settings.username, password, hosts=settings.hosts)
+    return client_factory(settings.url, settings.username, password, hosts=settings.hosts,
+                          use_proxy=settings.use_system_proxy)
 
 
 def discover(
@@ -535,6 +536,7 @@ class CalendarService(PluginService):
             "url": settings.url, "username": settings.username, "password": stored,
             "calendars": ", ".join(settings.calendars), "range": settings.range,
             "reminder": settings.reminder, "hosts": ", ".join(extra_hosts(settings)),
+            "use_system_proxy": settings.use_system_proxy,
         }
 
     def apply_config(self, values: dict[str, object]) -> None:
@@ -565,10 +567,12 @@ class CalendarService(PluginService):
             url=url, username=username, calendars=split_names(str(values.get("calendars") or "")),
             range=str(values.get("range") or "today_tomorrow"),
             reminder=str(values.get("reminder") or "off"), hosts=hosts,
+            use_system_proxy=values.get("use_system_proxy") is True,
         )
         connection = (
             current is None or current.url != url or current.username != username
             or "password" in values or extra_hosts(current) != hosts
+            or current.use_system_proxy != new.use_system_proxy
         )
         if connection or current is None or current.calendars != new.calendars:
             # Entering a host under "Allowed hosts" is the confirmation; the

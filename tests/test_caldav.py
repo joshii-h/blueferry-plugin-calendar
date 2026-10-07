@@ -210,7 +210,7 @@ def test_challenge_parsing() -> None:
     assert found["digest"]["nonce"] == "n1" and found["digest"]["qop"] == "auth,auth-int"
 
 
-def test_real_http_transport_against_a_local_server() -> None:
+def test_real_http_transport_against_a_local_server(monkeypatch) -> None:
     """urllib_send end to end: 401 challenge, redirect kept as PROPFIND, 207."""
     import base64
     import threading
@@ -247,11 +247,21 @@ def test_real_http_transport_against_a_local_server() -> None:
             self.end_headers()
             self.wfile.write(body)
 
+    # A proxy in the environment (nothing listens on port 9) is ignored
+    # unless the user opted in.
+    for variable in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY"):
+        monkeypatch.setenv(variable, "http://127.0.0.1:9")
+    for variable in ("no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(variable, raising=False)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        client = CalDavClient(f"http://127.0.0.1:{server.server_port}", USER, PASSWORD)
+        url = f"http://127.0.0.1:{server.server_port}"
+        client = CalDavClient(url, USER, PASSWORD)
         principal = client.principal()
+        with pytest.raises(CalDavError) as caught:
+            CalDavClient(url, USER, PASSWORD, use_proxy=True).principal()
+        assert caught.value.token == "network"
     finally:
         server.shutdown()
     assert principal == f"http://127.0.0.1:{server.server_port}/dav/alice/"

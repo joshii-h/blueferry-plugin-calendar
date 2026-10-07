@@ -71,8 +71,9 @@ def test_manifest_declares_card_and_notify_for_api_1_2() -> None:
     assert set(manifest.capabilities) == {"card", "notify"}
     assert "ApiVersion=1.2" in open(manifest_path()).read()
     fields = {f.key: f for f in manifest.config}
-    assert list(fields) == ["url", "username", "password", "hosts", "calendars", "range",
-                            "reminder"]
+    assert list(fields) == ["url", "username", "password", "hosts", "use_system_proxy",
+                            "calendars", "range", "reminder"]
+    assert fields["use_system_proxy"].default is False
     assert fields["password"].secret and fields["password"].required
     assert fields["range"].choices == ("today", "today_tomorrow")
     assert fields["reminder"].choices == ("off", "10", "15")
@@ -284,7 +285,7 @@ def test_settings_form_round_trip(env) -> None:
     values = json.loads(host._call("GetConfig"))["values"]
     assert values == {"url": "https://cloud.example.org", "username": USER,
                       "password": "********", "calendars": "personal", "range": "today",
-                      "reminder": "15", "hosts": ""}
+                      "reminder": "15", "hosts": "", "use_system_proxy": False}
     # The allowlist holds the hosts discovery used: here only the server.
     assert env.store.load().hosts == ("cloud.example.org",)
     assert PASSWORD not in env.store.config_path.read_text()

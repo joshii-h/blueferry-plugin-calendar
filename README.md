@@ -41,6 +41,7 @@ blueferry plugins config io.weirdware.blueferry.calendar \
 | `username` | Your account name. |
 | `password` | Your password or app password; checked against the server before it is stored. |
 | `hosts` | Other hosts that may receive the login, comma-separated. Empty: only the server's own host. The check names a host when the server points elsewhere (iCloud: `pNN-caldav.icloud.com`). |
+| `use_system_proxy` | Off (default): connect directly and ignore `http(s)_proxy` from the environment. On: requests, including the login, go through that proxy. |
 | `calendars` | Comma-separated calendar names to show; empty shows all event calendars. |
 | `range` | `today` or `today_tomorrow` (default). |
 | `reminder` | `off` (default), `10` or `15`: a desktop notification that many minutes before an event. |
