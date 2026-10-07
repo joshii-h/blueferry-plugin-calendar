@@ -65,26 +65,21 @@ def env(tmp_path) -> Env:
     return Env(tmp_path)
 
 
-def test_manifest_declares_card_and_notify_for_api_1_2() -> None:
+def test_manifest_declares_card_notify_and_the_1_3_form() -> None:
     manifest = plugin_manifest()
     assert manifest.id == "io.weirdware.blueferry.calendar"
     assert set(manifest.capabilities) == {"card", "notify"}
-    assert "ApiVersion=1.2" in open(manifest_path()).read()
+    assert manifest.api_minor == 3 and manifest.config_test
+    assert manifest.config_login == "nextcloud"
     fields = {f.key: f for f in manifest.config}
-    assert list(fields) == ["url", "username", "password", "hosts", "use_system_proxy",
-                            "calendars", "range", "reminder"]
+    assert list(fields) == ["url", "username", "password", "calendars", "range", "reminder",
+                            "hosts", "use_system_proxy"]
+    assert [g.name for g in manifest.config_groups] == ["account", "options", "advanced"]
     assert fields["use_system_proxy"].default is False
     assert fields["password"].secret and fields["password"].required
     assert fields["range"].choices == ("today", "today_tomorrow")
     assert fields["reminder"].choices == ("off", "10", "15")
     assert fields["reminder"].default == "off"
-
-
-def manifest_path():
-    import blueferry_calendar
-    from blueferry_calendar import PLUGIN_ID
-
-    return os.path.join(os.path.dirname(blueferry_calendar.__file__), f"{PLUGIN_ID}.plugin")
 
 
 def test_unconfigured_card_points_to_the_settings(env) -> None:

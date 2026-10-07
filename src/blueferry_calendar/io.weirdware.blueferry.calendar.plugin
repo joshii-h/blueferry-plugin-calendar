@@ -2,59 +2,78 @@
 Id=io.weirdware.blueferry.calendar
 Name=Calendar
 Version=0.1.2
-ApiVersion=1.2
-MinBlueFerry=0.8
+ApiVersion=1.3
+MinBlueFerry=0.8.1
 Capabilities=card;notify;
 Homepage=https://github.com/joshii-h/blueferry-plugin-calendar
 Source=https://github.com/joshii-h/blueferry-plugin-calendar
 Exec=blueferry-calendar serve
 Cli=blueferry-calendar
 Alias=calendar
+ConfigTest=true
+ConfigLogin=nextcloud
+
+[ConfigGroup account]
+Label=Account
+Help=iCloud, Nextcloud or another CalDAV server. With Nextcloud, "Sign in with Nextcloud" fills in user name and app password for you.
 
 [Config url]
 Label=CalDAV server
 Type=url
 Required=true
-Help=For example https://caldav.icloud.com, https://cloud.example.org or https://dav.example.org
+Group=account
+Placeholder=https://caldav.icloud.com
+Example=https://cloud.example.org/remote.php/dav
+Help=For iCloud always https://caldav.icloud.com.
 
 [Config username]
 Label=User name
 Type=string
-Required=true
-Help=For iCloud the Apple Account e-mail address
+Group=account
+Placeholder=anna@icloud.com
+Help=For iCloud the Apple Account e-mail address.
 
 [Config password]
-Label=Password
+Label=App password
 Type=secret
 Required=true
-Help=For iCloud an app-specific password (account.apple.com > Sign-In and Security)
-
-[Config hosts]
-Label=Allowed hosts
-Type=string
-Help=Other hosts that may receive the login, comma-separated (iCloud: the pNN-caldav.icloud.com the check names); empty allows only the server's own host
-
-[Config use_system_proxy]
-Label=Use the system proxy
-Type=bool
-Default=false
-Help=Off connects directly; on sends the requests (and the login) through http(s)_proxy from the environment
+Group=account
+Help=For iCloud an app-specific password, not your Apple Account password.
+HelpUrl=https://support.apple.com/102654
 
 [Config calendars]
 Label=Calendars
 Type=string
-Help=Comma-separated calendar names; empty shows all. List them with: blueferry plugins calendar calendars
+Group=options
+Placeholder=Personal, Work
+Help=Comma-separated names; leave empty for all calendars. "Test connection" lists the names.
 
 [Config range]
 Label=Show
 Type=choice
 Choices=today;today_tomorrow
 Default=today_tomorrow
-Help=Events of today only, or of today and tomorrow
+Group=options
+Help=Events of today only, or of today and tomorrow.
 
 [Config reminder]
 Label=Reminder
 Type=choice
 Choices=off;10;15
 Default=off
-Help=A desktop notification this many minutes before an event starts
+Group=options
+Help=A desktop notification this many minutes before an event starts.
+
+[Config hosts]
+Label=More allowed hosts
+Type=string
+Advanced=true
+Example=p42-caldav.icloud.com
+Help=Other hosts that may receive the login, comma-separated (iCloud: the pNN-caldav.icloud.com the check names); empty allows only the server's own host.
+
+[Config use_system_proxy]
+Label=Use the system proxy
+Type=bool
+Default=false
+Advanced=true
+Help=Off connects directly; on sends the requests (and the login) through http(s)_proxy from the environment.

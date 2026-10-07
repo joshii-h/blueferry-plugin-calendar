@@ -19,7 +19,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7,<10", "ruff>=0.5,<1"]
+dev = [
+  # TestCA and an https WSGI server for the Nextcloud sign-in tests.
+  "blueferry-plugin-kit[caldav,lanserver,testing] @ git+https://github.com/joshii-h/blueferry-plugin-kit@kit-v0.2.0",
+  "pytest>=7,<10",
+  "ruff>=0.5,<1",
+]
 
 [project.urls]
 Homepage = "https://github.com/joshii-h/blueferry-plugin-calendar"
