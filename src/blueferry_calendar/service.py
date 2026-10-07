@@ -33,9 +33,9 @@ from blueferry_plugin_kit.dav.caldav import (
     split_hosts,
     valid_host,
 )
+from blueferry_plugin_kit.dav.ical import Occurrence, local_zone, occurrences
 
 from blueferry_calendar import __version__
-from blueferry_calendar.agenda import Occurrence, local_zone, occurrences
 from blueferry_calendar.cache import AgendaCache, Snapshot
 from blueferry_calendar.settings import Settings, SettingsError, SettingsStore, split_names
 from blueferry_calendar.surfaces import (

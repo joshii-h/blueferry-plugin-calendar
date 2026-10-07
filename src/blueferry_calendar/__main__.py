@@ -17,9 +17,9 @@ from blueferry.plugin_api.config import ConfigError
 from blueferry.plugin_api.manifest import ManifestError, default_directories
 from blueferry.plugin_api.service import run
 from blueferry_plugin_kit.dav.caldav import CalDavClient, CalDavError, normalize_url, valid_host
+from blueferry_plugin_kit.dav.ical import local_zone
 
 from blueferry_calendar import PLUGIN_ID, manifest_text
-from blueferry_calendar.agenda import local_zone
 from blueferry_calendar.service import (
     ERROR_TEXT,
     CalendarService,
@@ -203,7 +203,7 @@ def list_calendars(store: SettingsStore | None = None, client_factory=new_client
 
 def agenda(store: SettingsStore | None = None, client_factory=new_client) -> int:
     """Print today's and tomorrow's events (to the terminal, never a log)."""
-    from blueferry_calendar.agenda import occurrences
+    from blueferry_plugin_kit.dav.ical import occurrences
 
     zone = local_zone()
     try:

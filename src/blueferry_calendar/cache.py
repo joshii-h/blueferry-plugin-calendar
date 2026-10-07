@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from blueferry_calendar.agenda import Occurrence
+from blueferry_plugin_kit.dav.ical import Occurrence
+
 from blueferry_calendar.settings import SettingsError, read_private, write_private
 
 MAX_CACHE_BYTES = 2 * 1024 * 1024
