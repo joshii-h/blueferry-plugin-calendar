@@ -25,8 +25,9 @@ from blueferry.plugin_api.config import ConfigError
 from blueferry.plugin_api.config_flow import MAX_MESSAGE, ConfigTestResult, LoginStep
 from blueferry.plugin_api.manifest import PluginManifest
 from blueferry.plugin_api.service import PluginCallError, PluginService
+from blueferry_plugin_kit.auth.nextcloud import MESSAGES as LOGIN_MESSAGES
 from blueferry_plugin_kit.auth.nextcloud import Credentials, NextcloudLogin
-from blueferry_plugin_kit.configtest import connected, passed
+from blueferry_plugin_kit.configtest import passed
 from blueferry_plugin_kit.dav.caldav import (
     CalDavClient,
     CalDavError,
@@ -40,6 +41,7 @@ from blueferry_plugin_kit.dav.ical import Occurrence, local_zone, occurrences
 
 from blueferry_calendar import __version__
 from blueferry_calendar.cache import AgendaCache, Snapshot
+from blueferry_calendar.i18n import t
 from blueferry_calendar.settings import Settings, SettingsError, SettingsStore, split_names
 from blueferry_calendar.surfaces import (
     ID,
@@ -64,25 +66,19 @@ REFRESH_EVERY = timedelta(minutes=10)
 RETRY_AFTER = timedelta(minutes=2)
 TICK_SECONDS = 30
 NOTIFIED_KEEP = timedelta(days=2)
-SETUP_HINT = (
-    "set the CalDAV server, user name and password in BlueFerry's settings "
-    "(Plugins > Calendar), or run: blueferry plugins calendar setup --url URL --user NAME"
-)
-ERROR_TEXT = {
-    "unauthorized": "the server refused the user name or password",
-    "forbidden": "the server refused access",
-    "not-found": "the server has no CalDAV service at this address",
-    "server-error": "the calendar server reported an error",
-    "network": "the calendar server is not reachable",
-    "too-large": "the server sent more data than allowed",
-    "bad-response": "the server's answer was not understood",
-    "redirect": "the server redirected too often",
-    "foreign-host": "the server pointed to a host that is not allowed; run setup again",
-    "invalid-url": "the address must start with https:// (http only for localhost)",
-    "no-principal": "no CalDAV account found at this address",
-    "no-calendars": "no event calendar found for this account",
-    "missing-calendars": "none of the chosen calendars exists any more",
-}
+
+
+def error_text(token: str) -> str:
+    """The user's-language text for a CalDAV error token (else the token)."""
+    key = "err_" + token
+    text = t(key)
+    return token if text == key else text
+
+
+def login_messages() -> dict[str, str]:
+    """The Nextcloud sign-in's messages in the user's language."""
+    return {key: t(f"login_{key}") for key in LOGIN_MESSAGES}
+
 
 Every = Callable[[int, Callable[[], bool]], object]
 
@@ -123,12 +119,6 @@ def window(now: datetime, zone: tzinfo) -> tuple[datetime, datetime]:
     return start, end
 
 
-FOREIGN_HOST = (
-    "the server sends the login on to {host}; add it to 'Allowed hosts' "
-    "if it belongs to your provider"
-)
-
-
 def extra_hosts(settings: Settings) -> tuple[str, ...]:
     """The allowed hosts besides the server's own (what the form shows)."""
     own = host_of(settings.url)
@@ -156,19 +146,19 @@ def discover(
 def config_error(error: CalDavError) -> ConfigError:
     """The settings field a discovery error is about, with a reason."""
     if error.token == "foreign-host" and error.host:
-        return ConfigError("hosts", FOREIGN_HOST.format(host=error.host))
+        return ConfigError("hosts", t("foreign_host", host=error.host))
     field = "password" if error.token in ("unauthorized", "forbidden") else "url"
-    return ConfigError(field, ERROR_TEXT.get(error.token, error.token))
+    return ConfigError(field, error_text(error.token))
 
 
 def check_selection(calendars: list[CalendarInfo], settings: Settings) -> None:
     if not calendars:
-        raise ConfigError("url", ERROR_TEXT["no-calendars"])
+        raise ConfigError("url", error_text("no-calendars"))
     _chosen, missing = select(calendars, settings.calendars)
     if missing:
         available = ", ".join(c.name for c in calendars)
         raise ConfigError(
-            "calendars", f"not found: {', '.join(missing)}; available: {available}"[:300],
+            "calendars", t("not_found", missing=", ".join(missing), available=available)[:300],
         )
 
 
@@ -187,7 +177,8 @@ def verify(
 def calendars_message(user: str, calendars: list[CalendarInfo]) -> str:
     """``Connected as anna; 3 calendars: Private, Work, Family.`` (≤ 200)."""
     names = [c.name for c in calendars]
-    head = f"{connected(user)}; {len(names)} calendar{'' if len(names) == 1 else 's'}: "
+    count = t("calendars_one" if len(names) == 1 else "calendars_many", count=len(names))
+    head = f"{t('connected', user=user)}; {count}: "
     text = head + ", ".join(names) + "."
     if len(text) > MAX_MESSAGE:
         text = text[:MAX_MESSAGE - 1].rstrip(", ") + "…"
@@ -216,7 +207,9 @@ class CalendarService(PluginService):
         **kwargs: Any,
     ) -> None:
         super().__init__(manifest, bus, **kwargs)
-        self._login = login or NextcloudLogin(user_agent="BlueFerry Calendar")
+        self._login = login or NextcloudLogin(
+            user_agent="BlueFerry Calendar", messages=login_messages(),
+        )
         self._login_values: dict[str, dict[str, object]] = {}
         self._settings = settings or SettingsStore()
         self._cache = cache or AgendaCache()
@@ -404,10 +397,11 @@ class CalendarService(PluginService):
     def _notify(self, event: Occurrence, now: datetime) -> None:
         minutes = max(1, round((event.start_at - now).total_seconds() / 60))
         local = event.start_at.astimezone(self._zone)
-        body = f"In {minutes} min, {local:%H:%M}–{event.end_at.astimezone(self._zone):%H:%M}"
+        end = event.end_at.astimezone(self._zone)
+        body = t("reminder", minutes=minutes, start=f"{local:%H:%M}", end=f"{end:%H:%M}")
         if event.location:
             body += f" · {event.location}"
-        label, action_id = ("Open", f"open-{event.key}") if event.url else ("", "")
+        label, action_id = (t("open"), f"open-{event.key}") if event.url else ("", "")
         self.Notify(event.title, body, "appointment-soon", label, action_id)
         log.info("reminder shown")
 
@@ -418,11 +412,11 @@ class CalendarService(PluginService):
         try:
             settings = self._settings.load()
         except SettingsError as error:
-            return [self._message_item("error", "Calendar settings unreadable", str(error))]
+            return [self._message_item("error", t("settings_unreadable"), str(error))]
         if settings is None:
             return [card_item(
-                "setup", "Calendar not set up", icon="x-office-calendar",
-                subtitle="Add your CalDAV server in BlueFerry's settings (Plugins > Calendar)",
+                "setup", t("not_set_up"), icon="x-office-calendar",
+                subtitle=t("not_set_up_hint"),
             )]
         if self._due(settings):
             self._refresh_in_background()
@@ -432,27 +426,23 @@ class CalendarService(PluginService):
             refreshing = self._refreshing
         if snapshot.source != _source(settings):
             if error:
-                return [self._message_item("error", "Calendar unavailable",
-                                           ERROR_TEXT.get(error, error))]
-            return [self._message_item("loading", "Loading calendar…", None)]
+                return [self._message_item("error", t("unavailable"), error_text(error))]
+            return [self._message_item("loading", t("loading"), None)]
         now = self._now()
         _start, end = self._window(now)
         horizon = end if settings.range == "today_tomorrow" else end - timedelta(days=1)
         upcoming = [e for e in snapshot.events if e.end_at > now and e.start_at < horizon]
         if not upcoming:
-            title = ("No more events today" if settings.range == "today"
-                     else "No more events today or tomorrow")
-            note = ERROR_TEXT.get(error, error) if error else (
-                "Updating…" if refreshing else None
-            )
+            title = t("empty_today" if settings.range == "today" else "empty_today_tomorrow")
+            note = error_text(error) if error else (t("updating") if refreshing else None)
             return [self._message_item("empty", title, note)]
         items = []
         for event in upcoming[:MAX_ITEMS]:
             actions = []
             if event.url:
-                actions.append(action("open", "Open in calendar",
+                actions.append(action("open", t("open_in_calendar"),
                                       icon="internet-web-browser", kind="primary"))
-            actions.append(action("refresh", "Refresh", icon="view-refresh"))
+            actions.append(action("refresh", t("refresh"), icon="view-refresh"))
             soon = event.start_at - now <= timedelta(minutes=15)
             items.append(card_item(
                 event.key, event.title,
@@ -463,7 +453,7 @@ class CalendarService(PluginService):
 
     def _message_item(self, item_id: str, title: str, subtitle: str | None) -> dict[str, object]:
         return card_item(item_id, title, icon="x-office-calendar", subtitle=subtitle,
-                         actions=[action("refresh", "Refresh", icon="view-refresh")])
+                         actions=[action("refresh", t("refresh"), icon="view-refresh")])
 
     def _when(self, event: Occurrence, now: datetime) -> str:
         start = event.start_at.astimezone(self._zone)
@@ -472,19 +462,19 @@ class CalendarService(PluginService):
 
         def day(value: datetime) -> str:
             if value.date() == today:
-                return "Today"
+                return t("today")
             if value.date() == today + timedelta(days=1):
-                return "Tomorrow"
-            return f"{value:%a %d.%m.}"
+                return t("tomorrow")
+            return f"{t('weekdays').split()[value.weekday()]} {value:%d.%m.}"
 
         if event.all_day:
             last = (end - timedelta(seconds=1)).date() if end > start else start.date()
             if start.date() <= today <= last:
-                text = "Today, all day"
+                text = t("all_day_today")
             else:
-                text = f"{day(start)}, all day"
+                text = t("all_day", day=day(start))
         elif start <= now:
-            text = f"Now until {end:%H:%M}" + (
+            text = t("now_until", end=f"{end:%H:%M}") + (
                 "" if end.date() == today else f" ({day(end)})"
             )
         else:
@@ -497,33 +487,33 @@ class CalendarService(PluginService):
 
     def invoke(self, item_id: str, action_id: str, args: dict[str, object]) -> str:
         if not ID.fullmatch(item_id) or not ID.fullmatch(action_id):
-            return action_reply(False, "Unknown action")
+            return action_reply(False, t("unknown_action"))
         if action_id == "refresh":
             try:
                 self.refresh()
             except CalDavError as error:
                 if error.token == "unconfigured":
-                    return action_reply(False, "The calendar is not set up yet")
+                    return action_reply(False, t("not_set_up_yet"))
                 self._to_main(self._card_changed)
-                return action_reply(False, ERROR_TEXT.get(error.token, error.token))
+                return action_reply(False, error_text(error.token))
             except SettingsError as error:
                 return action_reply(False, str(error))
             self._to_main(self._card_changed)
-            return action_reply(True, "Calendar updated")
+            return action_reply(True, t("updated"))
         if item_id == NOTIFY_ITEM and action_id.startswith("open-"):
             return self._open(action_id[len("open-"):])
         if action_id == "open":
             return self._open(item_id)
-        return action_reply(False, "Unknown action")
+        return action_reply(False, t("unknown_action"))
 
     def _open(self, key: str) -> str:
         snapshot = self._current()
         with self._lock:
             event = next((e for e in snapshot.events if e.key == key), None)
         if event is None:
-            return action_reply(False, "This event is no longer in the agenda")
+            return action_reply(False, t("event_gone"))
         if not event.url:
-            return action_reply(False, "This event has no link")
+            return action_reply(False, t("no_link"))
         return action_reply(True, None, event.url)
 
     # ---- status and settings ---------------------------------------------------------
@@ -534,14 +524,14 @@ class CalendarService(PluginService):
         except SettingsError as error:
             return {"state": "error", "detail": str(error)}
         if settings is None:
-            return {"state": "unconfigured", "detail": SETUP_HINT}
+            return {"state": "unconfigured", "detail": t("setup_hint")}
         server = settings.url.split("://", 1)[-1].split("/", 1)[0]
         with self._lock:
             error, refreshing = self._last_error, self._refreshing
         if refreshing:
             return {"state": "busy", "server": server}
         if error:
-            return {"state": "error", "server": server, "detail": ERROR_TEXT.get(error, error)}
+            return {"state": "error", "server": server, "detail": error_text(error)}
         return {"state": "ok", "server": server}
 
     def config_values(self) -> dict[str, object]:
@@ -570,10 +560,10 @@ class CalendarService(PluginService):
         try:
             url = normalize_url(str(values.get("url") or ""))
         except CalDavError:
-            raise ConfigError("url", ERROR_TEXT["invalid-url"]) from None
+            raise ConfigError("url", error_text("invalid-url")) from None
         username = str(values.get("username") or "").strip()
         if not username:
-            raise ConfigError("username", "is required")
+            raise ConfigError("username", t("required"))
         try:
             current = self._settings.load()
         except SettingsError:
@@ -582,16 +572,16 @@ class CalendarService(PluginService):
         if not password and current is not None:
             # The stored password only goes back to the server it belongs to.
             if (host_of(current.url), current.username) != (host_of(url), username):
-                raise ConfigError("password", "enter the password for this server and user")
+                raise ConfigError("password", t("password_for_server"))
             try:
                 password = self._settings.password(current)
             except SettingsError:
                 password = ""
         if not password:
-            raise ConfigError("password", "is required")
+            raise ConfigError("password", t("required"))
         hosts = split_hosts(str(values.get("hosts") or ""))
         if any(not valid_host(host) for host in hosts):
-            raise ConfigError("hosts", "must be host names separated by commas")
+            raise ConfigError("hosts", t("bad_hosts"))
         new = Settings(
             url=url, username=username, calendars=split_names(str(values.get("calendars") or "")),
             range=str(values.get("range") or "today_tomorrow"),
@@ -624,7 +614,7 @@ class CalendarService(PluginService):
             else:
                 self._settings.save_options(new.with_store(current.key_store))
         except (SettingsError, OSError) as error:
-            raise ConfigError("", f"could not store the settings: {error}") from None
+            raise ConfigError("", t("store_failed", error=error)) from None
         log.info("calendar settings saved")
         with self._lock:
             self._last_error = ""
@@ -696,7 +686,7 @@ class CalendarService(PluginService):
         try:
             self._settings.save(new, credentials.app_password, prefer_keyring=prefer_keyring)
         except (SettingsError, OSError) as error:
-            raise ConfigError("", f"could not store the settings: {error}") from None
+            raise ConfigError("", t("store_failed", error=error)) from None
         if current is not None and current.key_store == "keyring" and (
             current.url, current.username) != (new.url, new.username):
             self._settings.forget_keyring(current)

@@ -338,3 +338,45 @@ def test_an_old_config_without_hosts_allows_only_its_own_host(env) -> None:
     assert settings.hosts == ()
     client = env.factory(settings.url, USER, PASSWORD, hosts=settings.hosts)
     assert client.hosts == {"cloud.example.org"}
+
+
+def test_texts_follow_the_locale(env, monkeypatch) -> None:
+    from blueferry_calendar import i18n
+
+    monkeypatch.setenv("LANG", "de_CH.UTF-8")
+    service, host = env.service()
+    [setup] = host.card()
+    assert setup["title"] == "Kalender nicht eingerichtet"
+    assert "Plugins > Kalender" in service.status()["detail"]
+    env.configure(reminder="10")
+    items = host.card()
+    assert [(i["title"], i["subtitle"]) for i in items] == [
+        ("Team standup (moved)", "Heute 10:00–10:15 · Room 4"),
+        ("Call with New York", "Heute 17:00–18:00"),
+        ("Anna's birthday", "Morgen, ganztägig"),
+    ]
+    assert [a["label"] for a in items[1]["actions"]] == ["Im Kalender öffnen", "Aktualisieren"]
+    assert host.invoke(items[1]["id"], "refresh")["message"] == "Kalender aktualisiert"
+    assert host.invoke(items[0]["id"], "open")["message"] == "Dieser Termin hat keinen Link"
+    env.clock.now = datetime(2026, 10, 6, 14, 52, tzinfo=UTC)   # 16:52, call at 17:00
+    service.tick()
+    _title, body, _icon, label, _action = host.notifications[-1]
+    assert (body, label) == ("In 8 Min., 17:00–18:00", "Öffnen")
+    env.server.password = "changed"
+    reply = host.invoke(items[1]["id"], "refresh")
+    assert reply["message"] == "der Server hat Benutzername oder Passwort abgelehnt"
+    # Both tables have the same keys and seven weekdays.
+    assert i18n._DE.keys() == i18n._EN.keys()
+    assert len(i18n._DE["weekdays"].split()) == len(i18n._EN["weekdays"].split()) == 7
+
+
+def test_settings_messages_follow_the_locale(env, monkeypatch) -> None:
+    from blueferry_calendar.service import login_messages
+
+    monkeypatch.setenv("LANG", "de_DE.UTF-8")
+    _service, host = env.service()
+    result = host.test_config({"url": env.url, "username": USER, "password": PASSWORD})
+    assert result["ok"] is True and result["message"].startswith("Verbunden als alice; ")
+    result = host.test_config({"url": env.url, "username": "", "password": PASSWORD})
+    assert result["ok"] is False and result["errors"]["username"] == "ist erforderlich"
+    assert login_messages()["cancelled"] == "Anmeldung abgebrochen."

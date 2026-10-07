@@ -10,6 +10,10 @@ Radicale, Baikal and others. It runs as its own process on the session bus and
 talks to BlueFerry only through `blueferry.plugin_api` (plugin API 1.3, see
 `PLUGINS.md` in the BlueFerry repository).
 
+Card, reminders, action replies, status and settings messages are German or
+English, following the locale (`LC_ALL`, `LC_MESSAGES`, `LANGUAGE`, `LANG`),
+as in the WebDAV and LocalSend plugins; the command line stays English.
+
 ## Install
 
 ```sh

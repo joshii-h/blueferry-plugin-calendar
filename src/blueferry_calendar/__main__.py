@@ -21,12 +21,12 @@ from blueferry_plugin_kit.dav.ical import local_zone
 
 from blueferry_calendar import PLUGIN_ID, manifest_text
 from blueferry_calendar.service import (
-    ERROR_TEXT,
     CalendarService,
     check_selection,
     config_error,
     connect,
     discover,
+    error_text,
     new_client,
     select,
     window,
@@ -100,7 +100,7 @@ def _write(path: Path, text: str) -> None:
 
 
 def _error(error: CalDavError) -> str:
-    return ERROR_TEXT.get(error.token, error.token)
+    return error_text(error.token)
 
 
 def setup(args: argparse.Namespace, store: SettingsStore | None = None,
