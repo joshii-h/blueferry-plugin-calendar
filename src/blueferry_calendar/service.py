@@ -22,8 +22,11 @@ from typing import Any
 import dbus
 import dbus.service
 from blueferry.plugin_api.config import ConfigError
+from blueferry.plugin_api.config_flow import MAX_MESSAGE, ConfigTestResult, LoginStep
 from blueferry.plugin_api.manifest import PluginManifest
 from blueferry.plugin_api.service import PluginCallError, PluginService
+from blueferry_plugin_kit.auth.nextcloud import Credentials, NextcloudLogin
+from blueferry_plugin_kit.configtest import connected, passed
 from blueferry_plugin_kit.dav.caldav import (
     CalDavClient,
     CalDavError,
@@ -181,6 +184,16 @@ def verify(
     return calendars, hosts
 
 
+def calendars_message(user: str, calendars: list[CalendarInfo]) -> str:
+    """``Connected as anna; 3 calendars: Private, Work, Family.`` (≤ 200)."""
+    names = [c.name for c in calendars]
+    head = f"{connected(user)}; {len(names)} calendar{'' if len(names) == 1 else 's'}: "
+    text = head + ", ".join(names) + "."
+    if len(text) > MAX_MESSAGE:
+        text = text[:MAX_MESSAGE - 1].rstrip(", ") + "…"
+    return text
+
+
 def _source(settings: Settings) -> str:
     """Which settings an agenda belongs to (a hash, nothing readable)."""
     text = "\n".join([settings.url, settings.username, *settings.calendars])
@@ -199,9 +212,12 @@ class CalendarService(PluginService):
         now: Callable[[], datetime] = _utc_now,
         zone: tzinfo | None = None,
         every: Every | None = _every,
+        login: NextcloudLogin | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(manifest, bus, **kwargs)
+        self._login = login or NextcloudLogin(user_agent="BlueFerry Calendar")
+        self._login_values: dict[str, dict[str, object]] = {}
         self._settings = settings or SettingsStore()
         self._cache = cache or AgendaCache()
         self._client_factory = client_factory
@@ -546,8 +562,11 @@ class CalendarService(PluginService):
             "use_system_proxy": settings.use_system_proxy,
         }
 
-    def apply_config(self, values: dict[str, object]) -> None:
-        """Worker thread. Check server, account and calendars; then store."""
+    def _typed_settings(
+        self, values: dict[str, object],
+    ) -> tuple[Settings, str, Settings | None]:
+        """The settings a form describes, its password (typed or stored) and
+        the stored settings. Raises ConfigError for a bad field."""
         try:
             url = normalize_url(str(values.get("url") or ""))
         except CalDavError:
@@ -561,6 +580,9 @@ class CalendarService(PluginService):
             current = None
         password = str(values.get("password") or "")
         if not password and current is not None:
+            # The stored password only goes back to the server it belongs to.
+            if (host_of(current.url), current.username) != (host_of(url), username):
+                raise ConfigError("password", "enter the password for this server and user")
             try:
                 password = self._settings.password(current)
             except SettingsError:
@@ -576,6 +598,12 @@ class CalendarService(PluginService):
             reminder=str(values.get("reminder") or "off"), hosts=hosts,
             use_system_proxy=values.get("use_system_proxy") is True,
         )
+        return new, password, current
+
+    def apply_config(self, values: dict[str, object]) -> None:
+        """Worker thread. Check server, account and calendars; then store."""
+        new, password, current = self._typed_settings(values)
+        url, username, hosts = new.url, new.username, new.hosts
         connection = (
             current is None or current.url != url or current.username != username
             or "password" in values or extra_hosts(current) != hosts
@@ -611,6 +639,76 @@ class CalendarService(PluginService):
         self, settings: Settings, password: str,
     ) -> tuple[list[CalendarInfo], tuple[str, ...]]:
         return verify(self._client_factory, settings, password)
+
+    # ---- settings helpers (ApiVersion 1.3) --------------------------------------------
+
+    def test_config(self, values: dict[str, object]) -> ConfigTestResult:
+        """Worker thread. "Test connection": discover the calendars, store nothing."""
+        settings, password, _current = self._typed_settings(values)
+        calendars, _hosts = self.verify(settings, password)
+        log.info("calendar settings tested")
+        return passed(calendars_message(settings.username, calendars))
+
+    def config_login(self, provider: str, values: dict[str, object]) -> LoginStep:
+        """Worker thread. "Sign in with Nextcloud": open Login Flow v2."""
+        step = self._login.login_step(str(values.get("url") or ""))
+        if step.state == "open":
+            with self._lock:
+                self._login_values[step.login_id] = dict(values)
+                while len(self._login_values) > 4:
+                    self._login_values.pop(next(iter(self._login_values)))
+        return step
+
+    def config_login_status(self, login_id: str) -> LoginStep:
+        with self._lock:
+            values = dict(self._login_values.get(login_id, {}))
+        step = self._login.status_step(
+            login_id, lambda credentials: self._store_login(credentials, values),
+        )
+        if step.final:
+            with self._lock:
+                self._login_values.pop(login_id, None)
+        return step
+
+    def config_login_cancel(self, login_id: str) -> None:
+        self._login.cancel(login_id)
+        with self._lock:
+            self._login_values.pop(login_id, None)
+
+    def _store_login(self, credentials: Credentials, values: dict[str, object]) -> str:
+        """Nextcloud granted an app password: check the calendars, then store."""
+        try:
+            current = self._settings.load()
+        except SettingsError:
+            current = None
+        hosts = split_hosts(str(values.get("hosts") or ""))
+        new = Settings(
+            url=normalize_url(credentials.dav_url + "/"), username=credentials.login_name,
+            calendars=split_names(str(values.get("calendars") or "")),
+            range=str(values.get("range") or "today_tomorrow"),
+            reminder=str(values.get("reminder") or "off"),
+            hosts=tuple(h for h in hosts if valid_host(h)),
+            use_system_proxy=values.get("use_system_proxy") is True,
+        )
+        calendars, used = self.verify(new, credentials.app_password)
+        new = replace(new, hosts=used)
+        prefer_keyring = current is None or current.key_store != "file"
+        try:
+            self._settings.save(new, credentials.app_password, prefer_keyring=prefer_keyring)
+        except (SettingsError, OSError) as error:
+            raise ConfigError("", f"could not store the settings: {error}") from None
+        if current is not None and current.key_store == "keyring" and (
+            current.url, current.username) != (new.url, new.username):
+            self._settings.forget_keyring(current)
+        log.info("calendar settings saved after the Nextcloud sign-in")
+        with self._lock:
+            self._last_error = ""
+        try:
+            self.refresh()
+        except (CalDavError, SettingsError):
+            pass
+        self._to_main(self._card_changed)
+        return calendars_message(credentials.login_name, calendars)
 
     # ---- D-Bus: capability card ---------------------------------------------------------
 
