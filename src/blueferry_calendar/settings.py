@@ -7,19 +7,15 @@ D-Bus replies or command lines.
 """
 from __future__ import annotations
 
+import functools
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from blueferry_plugin_kit import secrets
-from blueferry_plugin_kit.secrets import (
-    MAX_FILE_BYTES,
-    KeyringStore,
-    SecretsError,
-    write_private,
-)
-from blueferry_plugin_kit.secrets import read_private_text as read_private
+from blueferry_plugin_kit.secrets import MAX_FILE_BYTES, KeyringStore, SecretsError
 
 from blueferry_calendar import PLUGIN_ID
 
@@ -27,7 +23,34 @@ SCHEMA = "io.weirdware.blueferry.calendar.Password"
 RANGES = ("today", "today_tomorrow")
 REMINDERS = ("off", "10", "15")
 
-SettingsError = SecretsError
+_T = TypeVar("_T")
+
+
+class SettingsError(SecretsError):
+    """The settings, password or cache file cannot be used.
+
+    A subclass of the kit's :class:`SecretsError`: everything in this plugin
+    raises (and logs) SettingsError, and ``except SecretsError`` still works.
+    """
+
+
+def _translated(function: Callable[..., _T]) -> Callable[..., _T]:
+    """Re-raise the kit's SecretsError as SettingsError, same message."""
+
+    @functools.wraps(function)
+    def wrapper(*args: Any, **kwargs: Any) -> _T:
+        try:
+            return function(*args, **kwargs)
+        except SettingsError:
+            raise
+        except SecretsError as error:
+            raise SettingsError(str(error)) from None
+
+    return wrapper
+
+
+read_private = _translated(secrets.read_private_text)
+write_private = _translated(secrets.write_private)
 
 __all__ = [
     "MAX_FILE_BYTES",
@@ -92,6 +115,7 @@ class SettingsStore(KeyringStore):
     def key_path(self) -> Path:
         return self.directory / "password"
 
+    @_translated
     def load(self) -> Settings | None:
         try:
             raw = json.loads(read_private(self.config_path))
@@ -120,6 +144,7 @@ class SettingsStore(KeyringStore):
             use_system_proxy=raw.get("use_system_proxy") is True,
         )
 
+    @_translated
     def save(self, settings: Settings, password: str, *, prefer_keyring: bool = True) -> str:
         """Store the password (keyring first) and the config; return the store."""
         store = self.save_secret(
@@ -128,6 +153,7 @@ class SettingsStore(KeyringStore):
         self.save_options(settings.with_store(store))
         return store
 
+    @_translated
     def save_options(self, settings: Settings) -> None:
         """Rewrite the config only; the password stays where it is."""
         write_private(self.config_path, json.dumps({
@@ -137,6 +163,7 @@ class SettingsStore(KeyringStore):
             "hosts": list(settings.hosts), "use_system_proxy": settings.use_system_proxy,
         }, indent=2) + "\n")
 
+    @_translated
     def password(self, settings: Settings) -> str:
         return self.load_secret(
             settings.key_store, self._attributes(settings),
@@ -155,6 +182,7 @@ class SettingsStore(KeyringStore):
         self.key_path.unlink(missing_ok=True)
         self.config_path.unlink(missing_ok=True)
 
+    @_translated
     def forget_keyring(self, settings: Settings) -> None:
         self.clear_keyring(self._attributes(settings))
 
