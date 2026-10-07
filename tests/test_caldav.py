@@ -127,6 +127,19 @@ def test_doctype_and_entities_are_refused() -> None:
     assert caught.value.token == "bad-response"
 
 
+def test_a_doctype_after_the_first_kilobytes_is_refused() -> None:
+    server = FakeServer("radicale")
+    server.overrides["PROPFIND http://localhost:5232/"] = Response(
+        207, {}, b'<?xml version="1.0"?><!--' + b"x" * 8192 + b'-->'
+        b'<!DOCTYPE multistatus SYSTEM "http://evil.example/x.dtd">'
+        b'<multistatus xmlns="DAV:"></multistatus>', "",
+    )
+    server.routes.pop("PROPFIND http://localhost:5232/.well-known/caldav")
+    with pytest.raises(CalDavError) as caught:
+        CalDavClient("http://localhost:5232", USER, PASSWORD, send=server).principal()
+    assert caught.value.token == "bad-response"
+
+
 def test_network_errors_become_a_token() -> None:
     def broken(*_args):
         raise OSError("connection refused")

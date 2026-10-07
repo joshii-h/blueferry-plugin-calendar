@@ -99,6 +99,8 @@ Basic and Digest authentication are supported (Baikal uses Digest by default).
   calendar link to any other host stops before a request goes there.
   Configs from 0.1.0 have no list; then only the exact host of the URL is
   allowed (run setup again for iCloud).
+- Server answers are parsed with `defusedxml`; a `DOCTYPE` anywhere in the
+  XML is refused.
 - The last agenda is cached in `~/.cache/blueferry/calendar/agenda.json`
   (directory 0700, file 0600, not encrypted), so the card shows something
   right after a restart and reminders are not repeated.

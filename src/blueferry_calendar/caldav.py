@@ -32,11 +32,14 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET  # nosec B405 - DTDs are refused before parsing
+import xml.etree.ElementTree as ET  # nosec B405 - only for types; parsing uses defusedxml
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+
+from defusedxml import ElementTree as SafeET
+from defusedxml.common import DefusedXmlException
 
 from blueferry_calendar import __version__
 
@@ -258,14 +261,12 @@ class _Auth:
 
 
 def _xml(body: bytes) -> ET.Element:
+    """Parse a server answer; any DOCTYPE, wherever it is, is refused."""
     if len(body) > MAX_XML_BYTES:
         raise CalDavError("too-large")
-    head = body[:4096].upper()
-    if b"<!DOCTYPE" in head or b"<!ENTITY" in body.upper():
-        raise CalDavError("bad-response")
     try:
-        return ET.fromstring(body)  # nosec B314 - no DTD, size-limited
-    except ET.ParseError:
+        return SafeET.fromstring(body, forbid_dtd=True)
+    except (ET.ParseError, DefusedXmlException):
         raise CalDavError("bad-response") from None
 
 
