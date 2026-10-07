@@ -10,11 +10,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from blueferry.plugin_api.testing import inline_service
+from blueferry_plugin_kit.dav.caldav import Response
 from fakes import PASSWORD, USER, FakeHost, FakeSecret, FakeServer, plugin_manifest
 
 from blueferry_calendar.cache import AgendaCache
-from blueferry_calendar.caldav import CalDavClient, Response
-from blueferry_calendar.service import CalendarService
+from blueferry_calendar.service import CalendarService, new_client
 from blueferry_calendar.settings import Settings, SettingsStore
 
 ZURICH = ZoneInfo("Europe/Zurich")
@@ -44,7 +44,7 @@ class Env:
         self.url = url
 
     def factory(self, url, user, password, **options):
-        return CalDavClient(url, user, password, send=self.server, **options)
+        return new_client(url, user, password, send=self.server, **options)
 
     def configure(self, **options) -> None:
         self.store.save(Settings(url=self.url, username=USER, **options), PASSWORD)

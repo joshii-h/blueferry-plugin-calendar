@@ -10,6 +10,7 @@ Nothing about an event (title, place, time, link) is ever logged.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import logging
 import threading
@@ -23,10 +24,7 @@ import dbus.service
 from blueferry.plugin_api.config import ConfigError
 from blueferry.plugin_api.manifest import PluginManifest
 from blueferry.plugin_api.service import PluginCallError, PluginService
-
-from blueferry_calendar.agenda import Occurrence, local_zone, occurrences
-from blueferry_calendar.cache import AgendaCache, Snapshot
-from blueferry_calendar.caldav import (
+from blueferry_plugin_kit.dav.caldav import (
     CalDavClient,
     CalDavError,
     CalendarInfo,
@@ -35,6 +33,10 @@ from blueferry_calendar.caldav import (
     split_hosts,
     valid_host,
 )
+
+from blueferry_calendar import __version__
+from blueferry_calendar.agenda import Occurrence, local_zone, occurrences
+from blueferry_calendar.cache import AgendaCache, Snapshot
 from blueferry_calendar.settings import Settings, SettingsError, SettingsStore, split_names
 from blueferry_calendar.surfaces import (
     ID,
@@ -49,6 +51,11 @@ from blueferry_calendar.surfaces import (
 )
 
 log = logging.getLogger(__name__)
+
+# A CalDAV client that names this plugin in its User-Agent.
+new_client: Callable[..., CalDavClient] = functools.partial(
+    CalDavClient, user_agent=f"blueferry-calendar/{__version__}",
+)
 
 REFRESH_EVERY = timedelta(minutes=10)
 RETRY_AFTER = timedelta(minutes=2)
@@ -188,7 +195,7 @@ class CalendarService(PluginService):
         *,
         settings: SettingsStore | None = None,
         cache: AgendaCache | None = None,
-        client_factory: Callable[..., CalDavClient] = CalDavClient,
+        client_factory: Callable[..., CalDavClient] = new_client,
         now: Callable[[], datetime] = _utc_now,
         zone: tzinfo | None = None,
         every: Every | None = _every,

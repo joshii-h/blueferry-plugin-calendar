@@ -16,10 +16,10 @@ from pathlib import Path
 from blueferry.plugin_api.config import ConfigError
 from blueferry.plugin_api.manifest import ManifestError, default_directories
 from blueferry.plugin_api.service import run
+from blueferry_plugin_kit.dav.caldav import CalDavClient, CalDavError, normalize_url, valid_host
 
 from blueferry_calendar import PLUGIN_ID, manifest_text
 from blueferry_calendar.agenda import local_zone
-from blueferry_calendar.caldav import CalDavClient, CalDavError, normalize_url, valid_host
 from blueferry_calendar.service import (
     ERROR_TEXT,
     CalendarService,
@@ -27,6 +27,7 @@ from blueferry_calendar.service import (
     config_error,
     connect,
     discover,
+    new_client,
     select,
     window,
 )
@@ -103,7 +104,7 @@ def _error(error: CalDavError) -> str:
 
 
 def setup(args: argparse.Namespace, store: SettingsStore | None = None,
-          client_factory=CalDavClient) -> int:
+          client_factory=new_client) -> int:
     store = store or SettingsStore()
     try:
         url = normalize_url(args.url)
@@ -175,14 +176,14 @@ def _confirm(host: str) -> bool:
     return answer.strip().lower() in ("y", "yes", "j", "ja")
 
 
-def _connect(store: SettingsStore, client_factory=CalDavClient) -> tuple[Settings, CalDavClient]:
+def _connect(store: SettingsStore, client_factory=new_client) -> tuple[Settings, CalDavClient]:
     settings = store.load()
     if settings is None:
         raise SettingsError("not configured; run: blueferry-calendar setup --url URL --user NAME")
     return settings, connect(client_factory, settings, store.password(settings))
 
 
-def list_calendars(store: SettingsStore | None = None, client_factory=CalDavClient) -> int:
+def list_calendars(store: SettingsStore | None = None, client_factory=new_client) -> int:
     try:
         settings, client = _connect(store or SettingsStore(), client_factory)
         calendars = client.calendars()
@@ -200,7 +201,7 @@ def list_calendars(store: SettingsStore | None = None, client_factory=CalDavClie
     return 0
 
 
-def agenda(store: SettingsStore | None = None, client_factory=CalDavClient) -> int:
+def agenda(store: SettingsStore | None = None, client_factory=new_client) -> int:
     """Print today's and tomorrow's events (to the terminal, never a log)."""
     from blueferry_calendar.agenda import occurrences
 

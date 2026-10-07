@@ -11,7 +11,7 @@ from fakes import PASSWORD, USER, FakeSecret, FakeServer
 
 from blueferry_calendar import PLUGIN_ID, manifest_text
 from blueferry_calendar import __main__ as cli
-from blueferry_calendar.caldav import CalDavClient
+from blueferry_calendar.service import new_client
 from blueferry_calendar.settings import SettingsStore
 from blueferry_calendar.surfaces import load_manifest
 
@@ -29,7 +29,7 @@ def _args(**overrides) -> argparse.Namespace:
 @pytest.fixture
 def icloud():
     server = FakeServer("icloud")
-    return server, (lambda url, user, password, **options: CalDavClient(
+    return server, (lambda url, user, password, **options: new_client(
         url, user, password, send=server, **options))
 
 

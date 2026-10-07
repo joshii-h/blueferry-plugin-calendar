@@ -2,7 +2,7 @@
 
 ``FakeServer`` replays ``fixtures/<server>/routes.json``: ``"METHOD URL"``
 maps to a status, headers and a body file. The bodies are modelled on what
-iCloud, Nextcloud, Radicale and Baikal send (namespace prefixes, absolute vs.
+iCloud, Nextcloud and Radicale send (namespace prefixes, absolute vs.
 relative hrefs, extra collections, auth challenges); they were written from
 the servers' documented behaviour, not captured from live accounts.
 ``{{ics:NAME}}`` in a body is replaced by ``fixtures/ics/NAME`` (XML-escaped),
@@ -25,9 +25,9 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from blueferry.plugin_api.manifest import parse_manifest
+from blueferry_plugin_kit.dav.caldav import Response
 
 from blueferry_calendar import manifest_text
-from blueferry_calendar.caldav import Response
 
 FIXTURES = Path(__file__).parent / "fixtures"
 USER, PASSWORD = "alice", "abcd-efgh-ijkl-mnop"
