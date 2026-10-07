@@ -14,13 +14,15 @@ from blueferry_calendar.caldav import (
     Response,
     _challenges,
     normalize_url,
-    site,
+    split_hosts,
+    valid_host,
 )
 
 ZURICH = ZoneInfo("Europe/Zurich")
 START = datetime(2026, 10, 6, tzinfo=ZURICH)
 END = datetime(2026, 10, 8, tzinfo=ZURICH)
 
+ICLOUD_PARTITION = ("p42-caldav.icloud.com",)
 SERVERS = {
     "icloud": ("https://caldav.icloud.com", ["Home", "Work"]),
     "nextcloud": ("https://cloud.example.org", ["Personal", "Contact birthdays"]),
@@ -33,20 +35,23 @@ SERVERS = {
 def test_discovery_finds_the_event_calendars(name) -> None:
     url, expected = SERVERS[name]
     server = FakeServer(name)
-    client = CalDavClient(url, USER, PASSWORD, send=server)
+    hosts = ICLOUD_PARTITION if name == "icloud" else ()
+    client = CalDavClient(url, USER, PASSWORD, send=server, hosts=hosts)
     calendars = client.calendars()
     assert [c.name for c in calendars] == expected
     # Every calendar answers the time-range REPORT with objects.
     for calendar in calendars:
         assert client.events(calendar.url, START, END)
-    # The password went only to the configured site.
-    configured = urllib.parse.urlsplit(url).hostname
-    assert {site(urllib.parse.urlsplit(u).hostname) for u in server.urls()} == {site(configured)}
+    # The password went only to the configured host and the allowed ones.
+    allowed = {urllib.parse.urlsplit(url).hostname, *hosts}
+    assert {urllib.parse.urlsplit(u).hostname for u in server.urls()} <= allowed
+    assert client.seen_hosts <= allowed
 
 
 def test_icloud_follows_the_home_set_to_its_partition_host() -> None:
     server = FakeServer("icloud")
-    client = CalDavClient("caldav.icloud.com", USER, PASSWORD, send=server)
+    client = CalDavClient("caldav.icloud.com", USER, PASSWORD, send=server,
+                          hosts=ICLOUD_PARTITION)
     calendars = client.calendars()
     assert all(c.url.startswith("https://p42-caldav.icloud.com:443/1234567890/") for c in calendars)
     assert server.urls("PROPFIND")[:2] == [
@@ -159,10 +164,30 @@ def test_bad_urls_are_refused(raw) -> None:
         normalize_url(raw)
 
 
-def test_site_rule() -> None:
-    assert site("p42-caldav.icloud.com") == site("caldav.icloud.com") == "icloud.com"
-    assert site("127.0.0.1") == "127.0.0.1"
-    assert site("cloud.example.org") != site("example.net")
+def test_only_the_exact_host_without_an_allowlist() -> None:
+    # No more "same site" guess: p42-caldav.icloud.com is a different host
+    # until the user allows it, and the error names it before any request.
+    server = FakeServer("icloud")
+    with pytest.raises(CalDavError) as caught:
+        CalDavClient("caldav.icloud.com", USER, PASSWORD, send=server).calendars()
+    assert (caught.value.token, caught.value.host) == ("foreign-host", "p42-caldav.icloud.com")
+    assert not any("p42" in url for url in server.urls())
+    # A sibling subdomain is just as foreign.
+    server = FakeServer("nextcloud")
+    server.overrides["PROPFIND https://cloud.example.org/.well-known/caldav"] = Response(
+        301, {"location": "https://other.example.org/dav/"}, b"", "",
+    )
+    with pytest.raises(CalDavError) as caught:
+        CalDavClient("https://cloud.example.org", USER, PASSWORD, send=server).calendars()
+    assert caught.value.host == "other.example.org"
+
+
+def test_host_list_parsing() -> None:
+    assert split_hosts(" P42-caldav.icloud.com, x.example.org;x.example.org ") == (
+        "p42-caldav.icloud.com", "x.example.org")
+    assert valid_host("10.0.0.5") and valid_host("p42-caldav.icloud.com")
+    for bad in ("https://x.org", "x.org:443", "a b", "-x.org", "x..org"):
+        assert not valid_host(bad), bad
 
 
 def test_challenge_parsing() -> None:

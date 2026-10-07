@@ -8,6 +8,8 @@ import os
 import shlex
 import shutil
 import sys
+import urllib.parse
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,8 +19,17 @@ from blueferry.plugin_api.service import run
 
 from blueferry_calendar import PLUGIN_ID, manifest_text
 from blueferry_calendar.agenda import local_zone
-from blueferry_calendar.caldav import CalDavClient, CalDavError, normalize_url
-from blueferry_calendar.service import ERROR_TEXT, CalendarService, select, verify, window
+from blueferry_calendar.caldav import CalDavClient, CalDavError, normalize_url, valid_host
+from blueferry_calendar.service import (
+    ERROR_TEXT,
+    CalendarService,
+    check_selection,
+    config_error,
+    connect,
+    discover,
+    select,
+    window,
+)
 from blueferry_calendar.settings import (
     RANGES,
     REMINDERS,
@@ -108,17 +119,43 @@ def setup(args: argparse.Namespace, store: SettingsStore | None = None,
     if not password or len(password) > 4096:
         print("No password given.", file=sys.stderr)
         return 2
+    allowed = tuple(h.strip().lower() for h in getattr(args, "allow_host", None) or ())
+    if any(not valid_host(host) for host in allowed):
+        print("--allow-host takes a host name, e.g. p42-caldav.icloud.com.", file=sys.stderr)
+        return 2
     settings = Settings(
         url=url, username=args.user.strip(), calendars=split_names(args.calendars or ""),
-        range=args.range, reminder=args.reminder,
+        range=args.range, reminder=args.reminder, hosts=allowed,
     )
     if not args.no_verify:
-        try:
-            calendars = verify(client_factory, settings, password)
-        except ConfigError as error:
-            print(f"Check failed ({error.field or 'settings'}): {error.message}.", file=sys.stderr)
+        interactive = not args.password_stdin and sys.stdin.isatty()
+        while True:
+            try:
+                calendars, used = discover(client_factory, settings, password)
+                check_selection(calendars, settings)
+                break
+            except CalDavError as error:
+                if error.token == "foreign-host" and error.host:
+                    # Nothing was sent to that host yet; ask before it is.
+                    if interactive and _confirm(error.host):
+                        settings = replace(settings, hosts=(*settings.hosts, error.host))
+                        continue
+                    print(f"The server sends the login on to {error.host}. If that host "
+                          "belongs to your provider, run setup again with "
+                          f"--allow-host {error.host}.", file=sys.stderr)
+                    return 1
+                problem = config_error(error)
+            except ConfigError as error:
+                problem = error
+            print(f"Check failed ({problem.field or 'settings'}): {problem.message}.",
+                  file=sys.stderr)
             return 1
+        # The hosts discovery used become the allowlist in the config.
+        settings = replace(settings, hosts=used)
         print("Calendars: " + ", ".join(c.name for c in select(calendars, settings.calendars)[0]))
+        extra = [h for h in used if h != urllib.parse.urlsplit(url).hostname]
+        if extra:
+            print("Allowed hosts: " + ", ".join(extra))
     try:
         where = store.save(settings, password, prefer_keyring=not args.key_file)
     except (SettingsError, OSError) as error:
@@ -132,11 +169,17 @@ def setup(args: argparse.Namespace, store: SettingsStore | None = None,
     return 0
 
 
+def _confirm(host: str) -> bool:
+    print(f"The server sends the login on to {host}.")
+    answer = input(f"Allow {host} to receive the user name and password? [y/N] ")
+    return answer.strip().lower() in ("y", "yes", "j", "ja")
+
+
 def _connect(store: SettingsStore, client_factory=CalDavClient) -> tuple[Settings, CalDavClient]:
     settings = store.load()
     if settings is None:
         raise SettingsError("not configured; run: blueferry-calendar setup --url URL --user NAME")
-    return settings, client_factory(settings.url, settings.username, store.password(settings))
+    return settings, connect(client_factory, settings, store.password(settings))
 
 
 def list_calendars(store: SettingsStore | None = None, client_factory=CalDavClient) -> int:
@@ -204,6 +247,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="read the password from standard input (for scripts)")
     set_up.add_argument("--no-verify", action="store_true",
                         help="do not test the account against the server")
+    set_up.add_argument("--allow-host", action="append", default=[], metavar="HOST",
+                        help="another host the login may go to (e.g. iCloud's "
+                             "pNN-caldav.icloud.com); asked interactively otherwise")
     commands.add_parser("calendars", help="list the account's calendars")
     commands.add_parser("agenda", help="print today's and tomorrow's events")
     commands.add_parser("status", help="show whether the plugin is configured")

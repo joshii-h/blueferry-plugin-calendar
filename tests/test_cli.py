@@ -20,7 +20,8 @@ HAS_V12 = "card" in api.KNOWN_CAPABILITIES
 
 def _args(**overrides) -> argparse.Namespace:
     values = dict(url="caldav.icloud.com", user=USER, calendars="work", range="today_tomorrow",
-                  reminder="10", key_file=False, password_stdin=True, no_verify=False)
+                  reminder="10", key_file=False, password_stdin=True, no_verify=False,
+                  allow_host=["p42-caldav.icloud.com"])
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -28,7 +29,8 @@ def _args(**overrides) -> argparse.Namespace:
 @pytest.fixture
 def icloud():
     server = FakeServer("icloud")
-    return server, (lambda url, user, password: CalDavClient(url, user, password, send=server))
+    return server, (lambda url, user, password, **options: CalDavClient(
+        url, user, password, send=server, **options))
 
 
 def test_setup_checks_and_stores(tmp_path, monkeypatch, capsys, icloud) -> None:
@@ -42,6 +44,32 @@ def test_setup_checks_and_stores(tmp_path, monkeypatch, capsys, icloud) -> None:
     settings = store.load()
     assert settings.url == "https://caldav.icloud.com/" and settings.calendars == ("work",)
     assert settings.reminder == "10" and store.password(settings) == PASSWORD
+    assert settings.hosts == ("caldav.icloud.com", "p42-caldav.icloud.com")
+
+
+def test_setup_asks_before_the_login_goes_to_another_host(
+    tmp_path, monkeypatch, capsys, icloud,
+) -> None:
+    server, factory = icloud
+    monkeypatch.setattr(cli, "install_activation", lambda: [])
+    store = SettingsStore(tmp_path, secret=FakeSecret())
+    # A script (password on stdin) is told what to allow, and nothing is stored.
+    monkeypatch.setattr("sys.stdin", io.StringIO(PASSWORD + "\n"))
+    assert cli.setup(_args(allow_host=[]), store, client_factory=factory) == 1
+    assert "--allow-host p42-caldav.icloud.com" in capsys.readouterr().err
+    assert store.load() is None
+    assert not any("p42" in url for url in server.urls())
+    # Interactively the user is asked; "n" stops, "y" allows and stores it.
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: PASSWORD)
+    monkeypatch.setattr("sys.stdin", type("Tty", (io.StringIO,), {"isatty": lambda s: True})())
+    answers = iter(["n"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    assert cli.setup(_args(allow_host=[], password_stdin=False), store,
+                     client_factory=factory) == 1
+    answers = iter(["y"])
+    assert cli.setup(_args(allow_host=[], password_stdin=False), store,
+                     client_factory=factory) == 0
+    assert "p42-caldav.icloud.com" in store.load().hosts
 
 
 def test_setup_reports_a_missing_calendar(tmp_path, monkeypatch, capsys, icloud) -> None:

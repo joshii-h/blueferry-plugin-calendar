@@ -14,10 +14,12 @@ server returns whole objects (recurring masters included) and the caller
 expands them locally, because server-side expansion is patchy (iCloud).
 
 Every request has a timeout, every body a size limit. Credentials go only
-to https URLs (http only on loopback) on the configured host's site, so a
-redirect or an absolute href cannot carry them elsewhere; iCloud's
-``caldav.icloud.com`` hands out ``pNN-caldav.icloud.com``, which is the same
-site. Basic and Digest authentication (Baikal's default) are supported.
+to https URLs (http only on loopback) whose host is on an explicit
+allowlist: the configured host, plus the hosts the user confirmed during
+setup (iCloud's ``caldav.icloud.com`` hands out ``pNN-caldav.icloud.com``).
+A redirect or an href to any other host stops with ``foreign-host`` and
+names the host, before a request goes there. Basic and Digest
+authentication (Baikal's default) are supported.
 Errors are short tokens; nothing a server sends is logged.
 """
 from __future__ import annotations
@@ -53,9 +55,10 @@ class CalDavError(Exception):
     network, too-large, bad-response, redirect, foreign-host, invalid-url,
     no-principal, no-calendars."""
 
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, host: str = "") -> None:
         super().__init__(token)
         self.token = token
+        self.host = host  # for foreign-host: the host that was not allowed
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,33 +98,40 @@ def normalize_url(raw: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
-def site(host: str) -> str:
-    """The registrable part of a host, roughly: its last two labels.
+def host_of(url: str) -> str:
+    return (urllib.parse.urlsplit(url).hostname or "").lower().rstrip(".")
 
-    IP addresses and single-label hosts stand for themselves. This is a
-    coarse rule (``example.co.uk`` would be too broad), good enough to keep
-    credentials on the server family the user named.
-    """
-    host = host.lower().rstrip(".")
+
+_HOST = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)*$")
+
+
+def valid_host(value: str) -> bool:
+    """A DNS name or an IP address, nothing else (no port, no scheme)."""
+    value = value.strip().lower().rstrip(".")
     try:
-        ipaddress.ip_address(host)
-        return host
+        ipaddress.ip_address(value)
+        return True
     except ValueError:
-        pass
-    labels = host.split(".")
-    return ".".join(labels[-2:]) if len(labels) >= 2 else host
+        return len(value) <= 253 and bool(_HOST.fullmatch(value))
 
 
-def _allowed(url: str, base: str) -> bool:
+def split_hosts(value: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(
+        part.strip().lower().rstrip(".") for part in value.replace(";", ",").split(",")
+        if part.strip()
+    ))
+
+
+def _allowed(url: str, base: str, hosts: frozenset[str]) -> bool:
     parts = urllib.parse.urlsplit(url)
-    host = (parts.hostname or "").lower()
+    host = (parts.hostname or "").lower().rstrip(".")
     if parts.username or parts.password:
         return False
     if parts.scheme == "http":
-        return host in _LOOPBACK and host == (urllib.parse.urlsplit(base).hostname or "")
+        return host in _LOOPBACK and host == host_of(base)
     if parts.scheme != "https" or not host:
         return False
-    return site(host) == site(urllib.parse.urlsplit(base).hostname or "")
+    return host in hosts
 
 
 # ---- transport -----------------------------------------------------------------
@@ -328,21 +338,27 @@ def _utc(value: datetime) -> str:
 
 class CalDavClient:
     def __init__(
-        self, url: str, username: str, password: str, *, send: Send = urllib_send,
-        timeout: float = TIMEOUT_SEC,
+        self, url: str, username: str, password: str, *, hosts: tuple[str, ...] = (),
+        send: Send = urllib_send, timeout: float = TIMEOUT_SEC,
     ) -> None:
         self.url = normalize_url(url)
+        # The configured host always; others only when the user allowed them.
+        self.hosts = frozenset({host_of(self.url), *(h.lower().rstrip(".") for h in hosts)})
+        self.seen_hosts: set[str] = set()
         self._auth = _Auth(username, password)
         self._send = send
         self._timeout = timeout
+
+    def _check(self, url: str) -> None:
+        if not _allowed(url, self.url, self.hosts):
+            raise CalDavError("foreign-host", host_of(url))
 
     def _request(
         self, method: str, url: str, body: bytes | None = None, *, depth: str | None = None,
     ) -> Response:
         """One request, with authentication and same-site redirects."""
         for _hop in range(MAX_REDIRECTS + 1):
-            if not _allowed(url, self.url):
-                raise CalDavError("foreign-host")
+            self._check(url)
             for _attempt in range(3):
                 headers = {
                     "User-Agent": f"blueferry-calendar/{__version__}",
@@ -381,6 +397,7 @@ class CalDavClient:
                 raise CalDavError("server-error")
             if len(reply.body) > MAX_XML_BYTES:
                 raise CalDavError("too-large")
+            self.seen_hosts.add(host_of(url))
             return Response(reply.status, reply.headers, reply.body, url)
         raise CalDavError("redirect")
 
@@ -392,8 +409,7 @@ class CalDavClient:
 
     def _absolute(self, base: str, href: str) -> str:
         url = urllib.parse.urljoin(base, href)
-        if not _allowed(url, self.url):
-            raise CalDavError("foreign-host")
+        self._check(url)
         return url
 
     # ---- discovery ----------------------------------------------------------
@@ -457,8 +473,7 @@ class CalDavClient:
 
     def events(self, calendar_url: str, start: datetime, end: datetime) -> list[str]:
         """The iCalendar texts of objects with an event in ``[start, end)``."""
-        if not _allowed(calendar_url, self.url):
-            raise CalDavError("foreign-host")
+        self._check(calendar_url)
         body = _REPORT.format(start=_utc(start), end=_utc(end)).encode()
         reply = self._request("REPORT", calendar_url, body, depth="1")
         if reply.status != 207:

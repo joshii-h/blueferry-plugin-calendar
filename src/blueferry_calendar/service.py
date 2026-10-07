@@ -14,6 +14,7 @@ import hashlib
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, time, timedelta, timezone, tzinfo
 from typing import Any
 
@@ -25,7 +26,15 @@ from blueferry.plugin_api.service import PluginCallError, PluginService
 
 from blueferry_calendar.agenda import Occurrence, local_zone, occurrences
 from blueferry_calendar.cache import AgendaCache, Snapshot
-from blueferry_calendar.caldav import CalDavClient, CalDavError, CalendarInfo, normalize_url
+from blueferry_calendar.caldav import (
+    CalDavClient,
+    CalDavError,
+    CalendarInfo,
+    host_of,
+    normalize_url,
+    split_hosts,
+    valid_host,
+)
 from blueferry_calendar.settings import Settings, SettingsError, SettingsStore, split_names
 from blueferry_calendar.surfaces import (
     ID,
@@ -58,7 +67,7 @@ ERROR_TEXT = {
     "too-large": "the server sent more data than allowed",
     "bad-response": "the server's answer was not understood",
     "redirect": "the server redirected too often",
-    "foreign-host": "the server pointed to a different host; check the address",
+    "foreign-host": "the server pointed to a host that is not allowed; run setup again",
     "invalid-url": "the address must start with https:// (http only for localhost)",
     "no-principal": "no CalDAV account found at this address",
     "no-calendars": "no event calendar found for this account",
@@ -104,15 +113,44 @@ def window(now: datetime, zone: tzinfo) -> tuple[datetime, datetime]:
     return start, end
 
 
-def verify(
-    client_factory: Callable[[str, str, str], CalDavClient], settings: Settings, password: str,
-) -> list[CalendarInfo]:
-    """Discovery with these settings; ConfigError names the bad field."""
-    try:
-        calendars = client_factory(settings.url, settings.username, password).calendars()
-    except CalDavError as error:
-        field = "password" if error.token in ("unauthorized", "forbidden") else "url"
-        raise ConfigError(field, ERROR_TEXT.get(error.token, error.token)) from None
+FOREIGN_HOST = (
+    "the server sends the login on to {host}; add it to 'Allowed hosts' "
+    "if it belongs to your provider"
+)
+
+
+def extra_hosts(settings: Settings) -> tuple[str, ...]:
+    """The allowed hosts besides the server's own (what the form shows)."""
+    own = host_of(settings.url)
+    return tuple(host for host in settings.hosts if host != own)
+
+
+def connect(
+    client_factory: Callable[..., CalDavClient], settings: Settings, password: str,
+) -> CalDavClient:
+    return client_factory(settings.url, settings.username, password, hosts=settings.hosts)
+
+
+def discover(
+    client_factory: Callable[..., CalDavClient], settings: Settings, password: str,
+) -> tuple[list[CalendarInfo], tuple[str, ...]]:
+    """The calendars and every host discovery used (principal, home,
+    calendars). Raises CalDavError, ``foreign-host`` naming the host."""
+    client = connect(client_factory, settings, password)
+    calendars = client.calendars()
+    used = client.seen_hosts | {host_of(c.url) for c in calendars} | {host_of(settings.url)}
+    return calendars, tuple(sorted(used))
+
+
+def config_error(error: CalDavError) -> ConfigError:
+    """The settings field a discovery error is about, with a reason."""
+    if error.token == "foreign-host" and error.host:
+        return ConfigError("hosts", FOREIGN_HOST.format(host=error.host))
+    field = "password" if error.token in ("unauthorized", "forbidden") else "url"
+    return ConfigError(field, ERROR_TEXT.get(error.token, error.token))
+
+
+def check_selection(calendars: list[CalendarInfo], settings: Settings) -> None:
     if not calendars:
         raise ConfigError("url", ERROR_TEXT["no-calendars"])
     _chosen, missing = select(calendars, settings.calendars)
@@ -121,7 +159,18 @@ def verify(
         raise ConfigError(
             "calendars", f"not found: {', '.join(missing)}; available: {available}"[:300],
         )
-    return calendars
+
+
+def verify(
+    client_factory: Callable[..., CalDavClient], settings: Settings, password: str,
+) -> tuple[list[CalendarInfo], tuple[str, ...]]:
+    """Discovery with these settings; ConfigError names the bad field."""
+    try:
+        calendars, hosts = discover(client_factory, settings, password)
+    except CalDavError as error:
+        raise config_error(error) from None
+    check_selection(calendars, settings)
+    return calendars, hosts
 
 
 def _source(settings: Settings) -> str:
@@ -138,7 +187,7 @@ class CalendarService(PluginService):
         *,
         settings: SettingsStore | None = None,
         cache: AgendaCache | None = None,
-        client_factory: Callable[[str, str, str], CalDavClient] = CalDavClient,
+        client_factory: Callable[..., CalDavClient] = CalDavClient,
         now: Callable[[], datetime] = _utc_now,
         zone: tzinfo | None = None,
         every: Every | None = _every,
@@ -238,7 +287,7 @@ class CalendarService(PluginService):
         if settings is None:
             raise CalDavError("unconfigured")
         password = self._settings.password(settings)
-        return settings, self._client_factory(settings.url, settings.username, password)
+        return settings, connect(self._client_factory, settings, password)
 
     def refresh(self) -> bool:
         """Fetch the window's events; True when the agenda changed. Blocking."""
@@ -485,7 +534,7 @@ class CalendarService(PluginService):
         return {
             "url": settings.url, "username": settings.username, "password": stored,
             "calendars": ", ".join(settings.calendars), "range": settings.range,
-            "reminder": settings.reminder,
+            "reminder": settings.reminder, "hosts": ", ".join(extra_hosts(settings)),
         }
 
     def apply_config(self, values: dict[str, object]) -> None:
@@ -509,17 +558,23 @@ class CalendarService(PluginService):
                 password = ""
         if not password:
             raise ConfigError("password", "is required")
+        hosts = split_hosts(str(values.get("hosts") or ""))
+        if any(not valid_host(host) for host in hosts):
+            raise ConfigError("hosts", "must be host names separated by commas")
         new = Settings(
             url=url, username=username, calendars=split_names(str(values.get("calendars") or "")),
             range=str(values.get("range") or "today_tomorrow"),
-            reminder=str(values.get("reminder") or "off"),
+            reminder=str(values.get("reminder") or "off"), hosts=hosts,
         )
         connection = (
             current is None or current.url != url or current.username != username
-            or "password" in values
+            or "password" in values or extra_hosts(current) != hosts
         )
         if connection or current is None or current.calendars != new.calendars:
-            self.verify(new, password)
+            # Entering a host under "Allowed hosts" is the confirmation; the
+            # config then keeps the hosts discovery actually used.
+            _calendars, used = self.verify(new, password)
+            new = replace(new, hosts=used)
         try:
             if connection:
                 prefer_keyring = current is None or current.key_store != "file"
@@ -541,7 +596,9 @@ class CalendarService(PluginService):
                 pass
         self._to_main(self._card_changed)
 
-    def verify(self, settings: Settings, password: str) -> list[CalendarInfo]:
+    def verify(
+        self, settings: Settings, password: str,
+    ) -> tuple[list[CalendarInfo], tuple[str, ...]]:
         return verify(self._client_factory, settings, password)
 
     # ---- D-Bus: capability card ---------------------------------------------------------

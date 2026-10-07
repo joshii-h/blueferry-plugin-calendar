@@ -29,6 +29,11 @@ Type=secret
 Required=true
 Help=For iCloud an app-specific password (account.apple.com > Sign-In and Security)
 
+[Config hosts]
+Label=Allowed hosts
+Type=string
+Help=Other hosts that may receive the login, comma-separated (iCloud: the pNN-caldav.icloud.com the check names); empty allows only the server's own host
+
 [Config calendars]
 Label=Calendars
 Type=string

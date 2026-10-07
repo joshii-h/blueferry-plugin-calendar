@@ -40,6 +40,7 @@ blueferry plugins config io.weirdware.blueferry.calendar \
 | `url` | The CalDAV server; `https://` (plain `http://` only for localhost). The plugin finds your calendars itself. |
 | `username` | Your account name. |
 | `password` | Your password or app password; checked against the server before it is stored. |
+| `hosts` | Other hosts that may receive the login, comma-separated. Empty: only the server's own host. The check names a host when the server points elsewhere (iCloud: `pNN-caldav.icloud.com`). |
 | `calendars` | Comma-separated calendar names to show; empty shows all event calendars. |
 | `range` | `today` or `today_tomorrow` (default). |
 | `reminder` | `off` (default), `10` or `15`: a desktop notification that many minutes before an event. |
@@ -56,8 +57,10 @@ and tomorrow's events in the terminal.
 2. Server `https://caldav.icloud.com`, user name your Apple Account e-mail
    address, password the app-specific password.
 
-iCloud keeps your calendars on a partition host (`pNN-caldav.icloud.com`); the
-plugin follows it there. Reminders lists are not calendars and are skipped.
+iCloud keeps your calendars on a partition host (`pNN-caldav.icloud.com`).
+The plugin sends your login there only after you allowed that host: `setup`
+asks (or takes `--allow-host pNN-caldav.icloud.com`), the settings form names
+it under "Allowed hosts". Reminders lists are not calendars and are skipped.
 
 ### Nextcloud
 
@@ -90,8 +93,12 @@ Basic and Digest authentication are supported (Baikal uses Digest by default).
 - The password goes to the desktop keyring (Secret Service); without one, to
   an owner-only file. It never appears in logs, the manifest, D-Bus replies
   or command lines. Credentials are only sent over https (http only to
-  localhost) and only to the server you configured (the same site, so a
-  redirect or a calendar link cannot carry them elsewhere).
+  localhost) and only to hosts on an allowlist: the server's own host and
+  the hosts you confirmed at setup. Setup stores the hosts discovery used
+  (principal, calendar home, calendars) in the config. A redirect or a
+  calendar link to any other host stops before a request goes there.
+  Configs from 0.1.0 have no list; then only the exact host of the URL is
+  allowed (run setup again for iCloud).
 - The last agenda is cached in `~/.cache/blueferry/calendar/agenda.json`
   (directory 0700, file 0600, not encrypted), so the card shows something
   right after a restart and reminders are not repeated.

@@ -47,6 +47,9 @@ class Settings:
     calendars: tuple[str, ...] = ()     # display names (or URLs); empty: all
     range: str = "today_tomorrow"
     reminder: str = "off"
+    # Hosts the login may go to, confirmed at setup (iCloud's partition
+    # host, say). Missing in older configs: then only the URL's own host.
+    hosts: tuple[str, ...] = ()
 
     @property
     def reminder_minutes(self) -> int:
@@ -122,6 +125,9 @@ class SettingsStore:
         calendars = raw.get("calendars", [])
         if not isinstance(calendars, list):
             calendars = []
+        hosts = raw.get("hosts", [])
+        if not isinstance(hosts, list):
+            hosts = []
         return Settings(
             url=raw["url"],
             username=raw["username"],
@@ -129,6 +135,7 @@ class SettingsStore:
             calendars=tuple(str(name) for name in calendars if isinstance(name, str)),
             range=raw.get("range") if raw.get("range") in RANGES else "today_tomorrow",
             reminder=raw.get("reminder") if raw.get("reminder") in REMINDERS else "off",
+            hosts=tuple(h.lower() for h in hosts if isinstance(h, str) and 0 < len(h) <= 253),
         )
 
     def save(self, settings: Settings, password: str, *, prefer_keyring: bool = True) -> str:
@@ -148,6 +155,7 @@ class SettingsStore:
             "url": settings.url, "username": settings.username,
             "key_store": settings.key_store, "calendars": list(settings.calendars),
             "range": settings.range, "reminder": settings.reminder,
+            "hosts": list(settings.hosts),
         }, indent=2) + "\n")
 
     def password(self, settings: Settings) -> str:

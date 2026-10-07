@@ -43,8 +43,8 @@ class Env:
         self.server = FakeServer(server)
         self.url = url
 
-    def factory(self, url, user, password):
-        return CalDavClient(url, user, password, send=self.server)
+    def factory(self, url, user, password, **options):
+        return CalDavClient(url, user, password, send=self.server, **options)
 
     def configure(self, **options) -> None:
         self.store.save(Settings(url=self.url, username=USER, **options), PASSWORD)
@@ -71,7 +71,8 @@ def test_manifest_declares_card_and_notify_for_api_1_2() -> None:
     assert set(manifest.capabilities) == {"card", "notify"}
     assert "ApiVersion=1.2" in open(manifest_path()).read()
     fields = {f.key: f for f in manifest.config}
-    assert list(fields) == ["url", "username", "password", "calendars", "range", "reminder"]
+    assert list(fields) == ["url", "username", "password", "hosts", "calendars", "range",
+                            "reminder"]
     assert fields["password"].secret and fields["password"].required
     assert fields["range"].choices == ("today", "today_tomorrow")
     assert fields["reminder"].choices == ("off", "10", "15")
@@ -283,7 +284,9 @@ def test_settings_form_round_trip(env) -> None:
     values = json.loads(host._call("GetConfig"))["values"]
     assert values == {"url": "https://cloud.example.org", "username": USER,
                       "password": "********", "calendars": "personal", "range": "today",
-                      "reminder": "15"}
+                      "reminder": "15", "hosts": ""}
+    # The allowlist holds the hosts discovery used: here only the server.
+    assert env.store.load().hosts == ("cloud.example.org",)
     assert PASSWORD not in env.store.config_path.read_text()
     assert list(env.secret.items.values()) == [PASSWORD]
     # Only the selected calendar is fetched; the birthday calendar is not.
@@ -311,3 +314,31 @@ def test_surfaces_live_on_plugin1() -> None:
     """Spec "D-Bus placement": no Card1/Notify1, everything on Plugin1."""
     for name in ("GetCardItems", "InvokeAction", "CardChanged", "Notify"):
         assert getattr(CalendarService, name)._dbus_interface == "io.weirdware.BlueFerry.Plugin1"
+
+
+def test_the_form_needs_the_partition_host_confirmed(tmp_path) -> None:
+    icloud = Env(tmp_path, "icloud", "https://caldav.icloud.com")
+    _service, host = icloud.service()
+    form = {"url": "https://caldav.icloud.com", "username": USER, "password": PASSWORD,
+            "calendars": "", "range": "today", "reminder": "off"}
+    reply = json.loads(host._call("SetConfig", json.dumps(form)))
+    assert reply["ok"] is False and "p42-caldav.icloud.com" in reply["errors"]["hosts"]
+    assert not any("p42" in url for url in icloud.server.urls())
+    form["hosts"] = "p42-caldav.icloud.com"
+    assert json.loads(host._call("SetConfig", json.dumps(form))) == {"ok": True}
+    assert icloud.store.load().hosts == ("caldav.icloud.com", "p42-caldav.icloud.com")
+    assert json.loads(host._call("GetConfig"))["values"]["hosts"] == "p42-caldav.icloud.com"
+    form["hosts"] = "https://p42-caldav.icloud.com"
+    reply = json.loads(host._call("SetConfig", json.dumps(form)))
+    assert reply["errors"] == {"hosts": "must be host names separated by commas"}
+
+
+def test_an_old_config_without_hosts_allows_only_its_own_host(env) -> None:
+    env.configure()
+    raw = json.loads(env.store.config_path.read_text())
+    raw.pop("hosts")
+    env.store.config_path.write_text(json.dumps(raw))
+    settings = env.store.load()
+    assert settings.hosts == ()
+    client = env.factory(settings.url, USER, PASSWORD, hosts=settings.hosts)
+    assert client.hosts == {"cloud.example.org"}
