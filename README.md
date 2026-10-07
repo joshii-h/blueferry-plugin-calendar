@@ -7,7 +7,7 @@ your next events in the "From plugins" section of the phone card (capability
 `card`) and, if you like, reminds you 10 or 15 minutes before an event starts
 (capability `notify`). It works with any CalDAV server: iCloud, Nextcloud,
 Radicale, Baikal and others. It runs as its own process on the session bus and
-talks to BlueFerry only through `blueferry.plugin_api` (plugin API 1.2, see
+talks to BlueFerry only through `blueferry.plugin_api` (plugin API 1.3, see
 `PLUGINS.md` in the BlueFerry repository).
 
 ## Install
@@ -22,8 +22,9 @@ will run, and installs only after you confirm. Update with
 `blueferry plugins update io.weirdware.blueferry.calendar`, remove with
 `blueferry plugins remove io.weirdware.blueferry.calendar`.
 
-The plugin needs a BlueFerry whose plugin API knows the `card` and `notify`
-capabilities (1.2); older versions ignore its manifest.
+The plugin needs a BlueFerry with plugin API 1.3 (guided settings form,
+"Test connection", "Sign in with Nextcloud"); older versions ignore its
+manifest. Version 0.1.2 is the last release for plugin API 1.2.
 
 ## Configure
 
@@ -38,13 +39,20 @@ blueferry plugins config io.weirdware.blueferry.calendar \
 | Setting | Meaning |
 | --- | --- |
 | `url` | The CalDAV server; `https://` (plain `http://` only for localhost). The plugin finds your calendars itself. |
-| `username` | Your account name. |
-| `password` | Your password or app password; checked against the server before it is stored. |
+| `username` | Your account name (filled in by the Nextcloud sign-in). |
+| `password` | Your app password; checked against the server before it is stored. A stored password is only sent to the server and user it was stored for. |
 | `hosts` | Other hosts that may receive the login, comma-separated. Empty: only the server's own host. The check names a host when the server points elsewhere (iCloud: `pNN-caldav.icloud.com`). |
 | `use_system_proxy` | Off (default): connect directly and ignore `http(s)_proxy` from the environment. On: requests, including the login, go through that proxy. |
 | `calendars` | Comma-separated calendar names to show; empty shows all event calendars. |
 | `range` | `today` or `today_tomorrow` (default). |
 | `reminder` | `off` (default), `10` or `15`: a desktop notification that many minutes before an event. |
+
+The form groups these into Account, Options and Advanced (`hosts`,
+`use_system_proxy`, folded). **Test connection** checks the typed values
+without storing them and answers, e.g., "Connected as anna; 3 calendars:
+Private, Work, Family." (calendar names only in that answer, never in a log);
+from a shell: `blueferry plugins config io.weirdware.blueferry.calendar
+--set … --test`.
 
 `blueferry plugins calendar calendars` lists the calendars of your account
 (`*` marks the ones shown); `blueferry plugins calendar agenda` prints today's
@@ -65,10 +73,18 @@ it under "Allowed hosts". Reminders lists are not calendars and are skipped.
 
 ### Nextcloud
 
-Server `https://cloud.example.org` (your Nextcloud address; the plugin finds
-`/remote.php/dav` through `/.well-known/caldav`). If you use two-factor
-authentication, create an app password under Personal settings > Security >
-Devices & sessions.
+Easiest: type your Nextcloud address (`https://cloud.example.org`) and press
+**Sign in with Nextcloud** (shell: `--set url=… --login`). Nextcloud opens in
+the browser; after you grant access the plugin receives your login name and
+a new app password ("BlueFerry Calendar" under Settings > Security > Devices
+& sessions, revocable there), stores the password in the keyring, uses
+`<server>/remote.php/dav/` as CalDAV address and checks the calendars. The
+app password never passes through BlueFerry or a log. The sign-in only uses
+https and expires after 20 minutes.
+
+By hand: server `https://cloud.example.org` (the plugin finds
+`/remote.php/dav` through `/.well-known/caldav`), your user name and an app
+password created under Personal settings > Security > Devices & sessions.
 
 ### Generic CalDAV (Radicale, Baikal, …)
 
@@ -124,7 +140,9 @@ from [blueferry-plugin-kit](https://github.com/joshii-h/blueferry-plugin-kit),
 which tests them itself (also against Baikal). The tests here replay CalDAV
 responses modelled on iCloud, Nextcloud and Radicale (`tests/fixtures/`) and
 drive the plugin through the kit's fake BlueFerry host, which checks every
-reply against the v1.2 surface spec. The plugin has not been tested against
+reply against the plugin API spec (card, notify, TestConfig, ConfigLogin).
+The Nextcloud sign-in runs over https against the kit's fake Login Flow v2
+server. The plugin has not been tested against
 live accounts yet.
 
 ## License
