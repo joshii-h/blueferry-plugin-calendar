@@ -72,9 +72,17 @@ def test_manifest_declares_card_notify_and_the_1_3_form() -> None:
     assert manifest.api_minor == 3 and manifest.config_test
     assert manifest.config_login == "nextcloud"
     fields = {f.key: f for f in manifest.config}
-    assert list(fields) == ["url", "username", "password", "calendars", "range", "reminder",
-                            "hosts", "use_system_proxy"]
-    assert [g.name for g in manifest.config_groups] == ["account", "options", "advanced"]
+    assert list(fields) == ["use_caldav", "url", "username", "password", "use_ical",
+                            "ical_urls", "ical_names", "calendars", "range", "reminder",
+                            "hosts", "use_system_proxy", "allow_http_feeds"]
+    assert [g.name for g in manifest.config_groups] == ["account", "feeds", "options",
+                                                        "advanced"]
+    assert fields["use_caldav"].default is True and fields["use_ical"].default is False
+    assert fields["ical_urls"].secret and fields["ical_urls"].show_if == ("use_ical", "true")
+    assert fields["url"].show_if == ("use_caldav", "true")
+    assert "Secret address in iCal format" in fields["ical_urls"].help
+    assert fields["ical_urls"].help_url == "https://support.google.com/calendar/answer/37648"
+    assert fields["allow_http_feeds"].default is False
     assert fields["use_system_proxy"].default is False
     assert fields["password"].secret and fields["password"].required
     assert fields["range"].choices == ("today", "today_tomorrow")
@@ -278,9 +286,11 @@ def test_settings_form_round_trip(env) -> None:
     form["calendars"] = "personal"
     assert json.loads(host._call("SetConfig", json.dumps(form))) == {"ok": True}
     values = json.loads(host._call("GetConfig"))["values"]
-    assert values == {"url": "https://cloud.example.org", "username": USER,
-                      "password": "********", "calendars": "personal", "range": "today",
-                      "reminder": "15", "hosts": "", "use_system_proxy": False}
+    assert values == {"use_caldav": True, "url": "https://cloud.example.org",
+                      "username": USER, "password": "********", "use_ical": False,
+                      "ical_urls": "", "ical_names": "", "calendars": "personal",
+                      "range": "today", "reminder": "15", "hosts": "",
+                      "use_system_proxy": False, "allow_http_feeds": False}
     # The allowlist holds the hosts discovery used: here only the server.
     assert env.store.load().hosts == ("cloud.example.org",)
     assert PASSWORD not in env.store.config_path.read_text()

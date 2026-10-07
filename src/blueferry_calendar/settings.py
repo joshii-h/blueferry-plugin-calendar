@@ -67,6 +67,7 @@ __all__ = [
     "SettingsStore",
     "config_dir",
     "read_private",
+    "split_feed_names",
     "split_names",
     "write_private",
 ]
@@ -74,6 +75,14 @@ __all__ = [
 
 def config_dir() -> Path:
     return secrets.config_dir(PLUGIN_ID)
+
+
+def split_feed_names(value: str) -> tuple[str, ...]:
+    """``"Google, , Holidays"`` -> ``("Google", "", "Holidays")``: by position."""
+    names = [part.strip()[:200] for part in value.split(",")]
+    while names and not names[-1]:
+        names.pop()
+    return tuple(names[:16])
 
 
 def split_names(value: str) -> tuple[str, ...]:
@@ -184,11 +193,16 @@ class SettingsStore(KeyringStore):
     @_translated
     def save(self, settings: Settings, password: str, *, prefer_keyring: bool = True) -> str:
         """Store the password (keyring first) and the config; return the store."""
-        store = self.save_secret(
-            self._attributes(settings), password, prefer_keyring=prefer_keyring,
-        )
+        store = self.save_password(settings, password, prefer_keyring=prefer_keyring)
         self.save_options(settings.with_store(store))
         return store
+
+    @_translated
+    def save_password(self, settings: Settings, password: str, *,
+                      prefer_keyring: bool = True) -> str:
+        """Store the CalDAV password only (keyring first); return the store."""
+        return self.save_secret(self._attributes(settings), password,
+                                prefer_keyring=prefer_keyring)
 
     @_translated
     def save_options(self, settings: Settings) -> None:

@@ -6,7 +6,7 @@ import os
 
 _DE = {
     "setup_hint": (
-        "CalDAV-Server, Benutzername und Passwort in den BlueFerry-Einstellungen "
+        "CalDAV-Konto oder iCal-Link (z. B. Google Kalender) in den BlueFerry-Einstellungen "
         "eintragen (Plugins > Kalender) oder ausführen: "
         "blueferry plugins calendar setup --url URL --user NAME"
     ),
@@ -53,7 +53,8 @@ _DE = {
     "settings_unreadable": "Kalendereinstellungen nicht lesbar",
     "not_set_up": "Kalender nicht eingerichtet",
     "not_set_up_hint": (
-        "CalDAV-Server in den BlueFerry-Einstellungen eintragen (Plugins > Kalender)"
+        "CalDAV-Konto oder iCal-Link in den BlueFerry-Einstellungen eintragen "
+        "(Plugins > Kalender)"
     ),
     "unavailable": "Kalender nicht verfügbar",
     "loading": "Kalender wird geladen …",
@@ -73,11 +74,36 @@ _DE = {
     "updated": "Kalender aktualisiert",
     "event_gone": "Dieser Termin ist nicht mehr in der Agenda",
     "no_link": "Dieser Termin hat keinen Link",
+    "no_source": "CalDAV-Konto, iCal-Links oder beides einschalten",
+    "feed_label": "iCal-Link {number}",
+    "feed_found_one": "{count} Termin gefunden, Kalender „{name}“",
+    "feed_found_many": "{count} Termine gefunden, Kalender „{name}“",
+    "feed_foreign_host": (
+        "{label} leitet weiter zu {host}; unter „Weitere erlaubte Hosts“ eintragen, "
+        "wenn er zum Kalenderanbieter gehört"
+    ),
+    "feed_err_invalid-url": "kein gültiger Link; die https://- oder webcal://-Adresse einfügen",
+    "feed_err_http-refused": (
+        "unverschlüsseltes http ist aus; https:// verwenden oder "
+        "„Unverschlüsseltes http für iCal-Links erlauben“ einschalten"
+    ),
+    "feed_err_too-many": "höchstens 8 Links",
+    "feed_err_not-found": (
+        "die Adresse gilt nicht (mehr); neu kopieren (bei Google ändert sie sich, "
+        "wenn die Privatadresse zurückgesetzt wird)"
+    ),
+    "feed_err_forbidden": "der Server verweigert den Zugriff auf diesen Link",
+    "feed_err_server-error": "der Kalenderserver meldet einen Fehler",
+    "feed_err_network": "der Kalenderserver ist nicht erreichbar",
+    "feed_err_too-large": "der Kalender ist größer als 8 MB",
+    "feed_err_redirect": "der Server leitet zu oft oder ungültig um",
+    "feed_err_foreign-host": "der Server leitet zu einem nicht erlaubten Host um",
+    "feed_err_not-calendar": "unter dieser Adresse liegt kein iCal-Kalender (.ics)",
 }
 
 _EN = {
     "setup_hint": (
-        "set the CalDAV server, user name and password in BlueFerry's settings "
+        "add a CalDAV account or an iCal link (e.g. Google Calendar) in BlueFerry's settings "
         "(Plugins > Calendar), or run: blueferry plugins calendar setup --url URL --user NAME"
     ),
     "err_unauthorized": "the server refused the user name or password",
@@ -120,7 +146,9 @@ _EN = {
     "open": "Open",
     "settings_unreadable": "Calendar settings unreadable",
     "not_set_up": "Calendar not set up",
-    "not_set_up_hint": "Add your CalDAV server in BlueFerry's settings (Plugins > Calendar)",
+    "not_set_up_hint": (
+        "Add a CalDAV account or an iCal link in BlueFerry's settings (Plugins > Calendar)"
+    ),
     "unavailable": "Calendar unavailable",
     "loading": "Loading calendar…",
     "empty_today": "No more events today",
@@ -139,6 +167,30 @@ _EN = {
     "updated": "Calendar updated",
     "event_gone": "This event is no longer in the agenda",
     "no_link": "This event has no link",
+    "no_source": "switch on the CalDAV account, iCal links or both",
+    "feed_label": "iCal link {number}",
+    "feed_found_one": "{count} event found, calendar “{name}”",
+    "feed_found_many": "{count} events found, calendar “{name}”",
+    "feed_foreign_host": (
+        "{label} redirects to {host}; add it under 'More allowed hosts' "
+        "if it belongs to the calendar provider"
+    ),
+    "feed_err_invalid-url": "not a valid link; paste the https:// or webcal:// address",
+    "feed_err_http-refused": (
+        "plain http is off; use https:// or switch on 'Allow plain http for iCal links'"
+    ),
+    "feed_err_too-many": "at most 8 links",
+    "feed_err_not-found": (
+        "the address is not (or no longer) valid; copy it again (Google changes it "
+        "when the secret address is reset)"
+    ),
+    "feed_err_forbidden": "the server refused access to this link",
+    "feed_err_server-error": "the calendar server reported an error",
+    "feed_err_network": "the calendar server is not reachable",
+    "feed_err_too-large": "the calendar is larger than 8 MB",
+    "feed_err_redirect": "the server redirected too often or to an invalid address",
+    "feed_err_foreign-host": "the server redirected to a host that is not allowed",
+    "feed_err_not-calendar": "this address does not deliver an iCal calendar (.ics)",
 }
 
 

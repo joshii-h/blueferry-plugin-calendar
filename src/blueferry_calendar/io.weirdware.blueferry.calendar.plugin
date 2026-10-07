@@ -14,14 +14,26 @@ ConfigTest=true
 ConfigLogin=nextcloud
 
 [ConfigGroup account]
-Label=Account
+Label=CalDAV account
 Help=iCloud, Nextcloud or another CalDAV server. With Nextcloud, "Sign in with Nextcloud" fills in user name and app password for you.
+
+[ConfigGroup feeds]
+Label=iCal subscriptions (read-only)
+Help=Google Calendar without a sign-in, Outlook.com, iCloud public calendars, holidays, school calendars: any calendar with an iCal address. Shown, never changed. With CalDAV or instead of it.
+
+[Config use_caldav]
+Label=Use a CalDAV account
+Type=bool
+Default=true
+Group=account
+Help=Off when you only use iCal links (e.g. Google Calendar).
 
 [Config url]
 Label=CalDAV server
 Type=url
 Required=true
 Group=account
+ShowIf=use_caldav=true
 Placeholder=https://caldav.icloud.com
 Example=https://cloud.example.org/remote.php/dav
 Help=For iCloud always https://caldav.icloud.com.
@@ -30,6 +42,7 @@ Help=For iCloud always https://caldav.icloud.com.
 Label=User name
 Type=string
 Group=account
+ShowIf=use_caldav=true
 Placeholder=anna@icloud.com
 Help=For iCloud the Apple Account e-mail address.
 
@@ -38,15 +51,42 @@ Label=App password
 Type=secret
 Required=true
 Group=account
+ShowIf=use_caldav=true
 Help=For iCloud an app-specific password, not your Apple Account password.
 HelpUrl=https://support.apple.com/102654
+
+[Config use_ical]
+Label=Use iCal links (Google Calendar and others)
+Type=bool
+Default=false
+Group=feeds
+Help=Read-only. Google updates these links with a delay (often several hours); changes then show up here too. BlueFerry asks every 15 minutes.
+
+[Config ical_urls]
+Label=iCal links
+Type=secret
+Required=true
+Group=feeds
+ShowIf=use_ical=true
+Placeholder=https://calendar.google.com/calendar/ical/…/private-…/basic.ics
+Help=Google: Settings > the calendar > Integrate calendar > Secret address in iCal format. webcal:// works too; several links separated by spaces. Keep it secret: whoever has the link reads the calendar.
+HelpUrl=https://support.google.com/calendar/answer/37648
+
+[Config ical_names]
+Label=Names of the iCal calendars
+Type=string
+Group=feeds
+ShowIf=use_ical=true
+Placeholder=Google, Holidays
+Help=Optional, comma-separated in the order of the links; empty uses the name the calendar sends. "Test connection" shows how many events each link has.
 
 [Config calendars]
 Label=Calendars
 Type=string
 Group=options
 Placeholder=Personal, Work
-Help=Comma-separated names; leave empty for all calendars. "Test connection" lists the names.
+ShowIf=use_caldav=true
+Help=CalDAV calendars to show, comma-separated; empty shows all. "Test connection" lists the names.
 
 [Config range]
 Label=Show
@@ -69,7 +109,7 @@ Label=More allowed hosts
 Type=string
 Advanced=true
 Example=p42-caldav.icloud.com
-Help=Other hosts that may receive the login, comma-separated (iCloud: the pNN-caldav.icloud.com the check names); empty allows only the server's own host.
+Help=Other hosts the login or an iCal link may go to, comma-separated (iCloud: the pNN-caldav.icloud.com the check names); empty allows only the hosts you entered.
 
 [Config use_system_proxy]
 Label=Use the system proxy
@@ -77,3 +117,10 @@ Type=bool
 Default=false
 Advanced=true
 Help=Off connects directly; on sends the requests (and the login) through http(s)_proxy from the environment.
+
+[Config allow_http_feeds]
+Label=Allow plain http for iCal links
+Type=bool
+Default=false
+Advanced=true
+Help=Only for calendars without https (some club or school sites); the link and the events then travel unencrypted. http to localhost always works.

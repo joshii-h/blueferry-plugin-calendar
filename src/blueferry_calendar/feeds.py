@@ -60,8 +60,8 @@ class FeedError(CalDavError):
 
     @property
     def code(self) -> str:
-        """``feed:<n>:<host>:<token>`` (1-based), what Status() remembers."""
-        return f"feed:{self.index + 1}:{self.host}:{self.token}"
+        """``feed|<n>|<host>|<token>`` (n 1-based), what Status() remembers."""
+        return f"feed|{self.index + 1}|{self.host}|{self.token}"
 
 
 # ---- links ------------------------------------------------------------------------
