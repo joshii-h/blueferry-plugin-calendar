@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blueferry-calendar"
-version = "0.2.1"
-description = "BlueFerry plugin: today's and tomorrow's events from a CalDAV server"
+version = "0.3.0"
+description = "BlueFerry plugin: today's and tomorrow's events from CalDAV or iCal links (Google Calendar)"
 readme = "README.md"
 license = {text = "GPL-2.0-or-later"}
 requires-python = ">=3.10"

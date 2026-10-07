@@ -1,4 +1,4 @@
-"""BlueFerry plugin: today's and tomorrow's events from a CalDAV server.
+"""BlueFerry plugin: today's and tomorrow's events from CalDAV or iCal links.
 
 Imports only ``blueferry.plugin_api`` from BlueFerry.
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 from importlib import resources
 
 PLUGIN_ID = "io.weirdware.blueferry.calendar"
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 
 def manifest_text() -> str:
