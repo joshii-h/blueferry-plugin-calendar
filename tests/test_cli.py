@@ -119,3 +119,23 @@ def test_install_activation_writes_manifest_and_service(tmp_path, monkeypatch) -
     manifest = (tmp_path / "blueferry" / "plugins" / f"{PLUGIN_ID}.plugin").read_text()
     assert "serve" in manifest and len(written) == 2
     assert load_manifest(manifest).capabilities == ("card", "notify")
+
+
+def test_setup_keeps_the_ical_links_and_status_names_both(tmp_path, monkeypatch, capsys) -> None:
+    from blueferry_calendar.settings import Settings
+
+    monkeypatch.setattr(cli, "install_activation", lambda: [])
+    store = SettingsStore(tmp_path, secret=FakeSecret())
+    store.save_feeds(("https://calendar.google.com/calendar/ical/x/private-y/basic.ics",))
+    store.save_options(Settings(url="", username="", use_caldav=False, use_ical=True,
+                                feeds_id="abc", feed_hosts=("calendar.google.com",)))
+    monkeypatch.setattr("sys.stdin", io.StringIO(PASSWORD + "\n"))
+    assert cli.setup(_args(no_verify=True, allow_host=[]), store) == 0
+    settings = store.load()
+    assert (settings.use_caldav, settings.use_ical, settings.feeds_id) == (True, True, "abc")
+    monkeypatch.setattr(cli, "SettingsStore", lambda: store)
+    capsys.readouterr()
+    assert cli.main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert "CalDAV: alice at https://caldav.icloud.com/" in out
+    assert "iCal links: 1 (calendar.google.com)" in out and "private-y" not in out

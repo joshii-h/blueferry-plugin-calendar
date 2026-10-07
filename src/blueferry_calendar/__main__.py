@@ -1,4 +1,9 @@
-"""``blueferry-calendar serve|setup|calendars|agenda|status|forget``."""
+"""``blueferry-calendar serve|setup|calendars|agenda|status|forget``.
+
+``setup`` stores a CalDAV account; iCal links (Google Calendar and others)
+are entered in BlueFerry's settings form, so they never appear on a
+command line or in the shell history.
+"""
 from __future__ import annotations
 
 import argparse
@@ -20,6 +25,7 @@ from blueferry_plugin_kit.dav.caldav import CalDavClient, CalDavError, normalize
 from blueferry_plugin_kit.dav.ical import local_zone
 
 from blueferry_calendar import PLUGIN_ID, manifest_text
+from blueferry_calendar.feeds import feed_id
 from blueferry_calendar.service import (
     CalendarService,
     check_selection,
@@ -27,8 +33,11 @@ from blueferry_calendar.service import (
     connect,
     discover,
     error_text,
+    feed_name,
     new_client,
+    new_feed_client,
     select,
+    verify_feeds,
     window,
 )
 from blueferry_calendar.settings import (
@@ -124,9 +133,15 @@ def setup(args: argparse.Namespace, store: SettingsStore | None = None,
     if any(not valid_host(host) for host in allowed):
         print("--allow-host takes a host name, e.g. p42-caldav.icloud.com.", file=sys.stderr)
         return 2
-    settings = Settings(
+    try:
+        current = store.load()
+    except SettingsError:
+        current = None
+    # The iCal links and their options stay as they are.
+    settings = replace(
+        current if current is not None else Settings(url="", username=""),
         url=url, username=args.user.strip(), calendars=split_names(args.calendars or ""),
-        range=args.range, reminder=args.reminder, hosts=allowed,
+        range=args.range, reminder=args.reminder, hosts=allowed, use_caldav=True,
     )
     if not args.no_verify:
         interactive = not args.password_stdin and sys.stdin.isatty()
@@ -180,6 +195,8 @@ def _connect(store: SettingsStore, client_factory=new_client) -> tuple[Settings,
     settings = store.load()
     if settings is None:
         raise SettingsError("not configured; run: blueferry-calendar setup --url URL --user NAME")
+    if not settings.use_caldav:
+        raise SettingsError("no CalDAV account is set up (only iCal links)")
     return settings, connect(client_factory, settings, store.password(settings))
 
 
@@ -201,25 +218,42 @@ def list_calendars(store: SettingsStore | None = None, client_factory=new_client
     return 0
 
 
-def agenda(store: SettingsStore | None = None, client_factory=new_client) -> int:
+def agenda(store: SettingsStore | None = None, client_factory=new_client,
+           feed_client_factory=new_feed_client) -> int:
     """Print today's and tomorrow's events (to the terminal, never a log)."""
     from blueferry_plugin_kit.dav.ical import occurrences
 
     zone = local_zone()
+    store = store or SettingsStore()
+    events = []
     try:
-        settings, client = _connect(store or SettingsStore(), client_factory)
-        found, _missing = select(client.calendars(), settings.calendars)
+        settings = store.load()
+        if settings is None:
+            raise SettingsError(
+                "not configured; run: blueferry-calendar setup --url URL --user NAME")
         now = datetime.now(timezone.utc)
         start, end = window(now, zone)
-        events = []
-        for calendar in found:
-            events += occurrences(client.events(calendar.url, start, end), start, end, zone,
-                                  calendar=calendar.name, calendar_id=calendar.url)
+        if settings.use_caldav:
+            settings, client = _connect(store, client_factory)
+            found, _missing = select(client.calendars(), settings.calendars)
+            for calendar in found:
+                events += occurrences(client.events(calendar.url, start, end), start, end,
+                                      zone, calendar=calendar.name, calendar_id=calendar.url)
+        if settings.use_ical:
+            links = store.feeds(settings)
+            feeds, _used = verify_feeds(feed_client_factory, settings, links)
+            for index, (link, feed) in enumerate(zip(links, feeds, strict=True)):
+                events += occurrences([feed.text], start, end, zone,
+                                      calendar=feed_name(settings, index, feed, link),
+                                      calendar_id=feed_id(link))
     except SettingsError as error:
         print(error, file=sys.stderr)
         return 1
     except CalDavError as error:
         print(f"Failed: {_error(error)}.", file=sys.stderr)
+        return 1
+    except ConfigError as error:
+        print(f"Failed: {error.message}.", file=sys.stderr)
         return 1
     for event in sorted(events, key=lambda e: e.start_at):
         when = "all day" if event.all_day else f"{event.start_at.astimezone(zone):%a %H:%M}"
@@ -269,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         from blueferry_calendar.cache import AgendaCache
 
         AgendaCache().clear()
-        print("Removed the stored CalDAV settings, password and cached agenda.")
+        print("Removed the stored settings, password, iCal links and cached agenda.")
         return 0
     if args.command == "status":
         try:
@@ -277,8 +311,14 @@ def main(argv: list[str] | None = None) -> int:
         except SettingsError as error:
             print(error)
             return 1
-        print(f"Configured for {settings.username} at {settings.url}" if settings
-              else "Not configured.")
+        if settings is None:
+            print("Not configured.")
+            return 0
+        if settings.use_caldav:
+            print(f"CalDAV: {settings.username} at {settings.url}")
+        if settings.use_ical:
+            hosts = ", ".join(dict.fromkeys(settings.feed_hosts)) or "none stored"
+            print(f"iCal links: {len(settings.feed_hosts)} ({hosts})")
         return 0
     try:
         manifest = load_manifest(manifest_text())
