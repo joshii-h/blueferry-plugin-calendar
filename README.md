@@ -119,10 +119,13 @@ python3 -m venv --system-site-packages .venv   # dbus-python, PyGObject, libsecr
 ```
 
 `blueferry-plugin-api` comes from the `plugin-api` directory of the BlueFerry
-repository. The tests replay CalDAV responses modelled on iCloud, Nextcloud,
-Radicale and Baikal (`tests/fixtures/`) and drive the plugin through a fake
-BlueFerry host that checks every reply against the v1.2 surface spec. The
-plugin has not been tested against live accounts yet.
+repository. The CalDAV client, the event expansion and the keyring store come
+from [blueferry-plugin-kit](https://github.com/joshii-h/blueferry-plugin-kit),
+which tests them itself (also against Baikal). The tests here replay CalDAV
+responses modelled on iCloud, Nextcloud and Radicale (`tests/fixtures/`) and
+drive the plugin through the kit's fake BlueFerry host, which checks every
+reply against the v1.2 surface spec. The plugin has not been tested against
+live accounts yet.
 
 ## License
 
