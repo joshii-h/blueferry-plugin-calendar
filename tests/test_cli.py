@@ -15,8 +15,6 @@ from blueferry_calendar.service import new_client
 from blueferry_calendar.settings import SettingsStore
 from blueferry_calendar.surfaces import load_manifest
 
-HAS_V12 = "card" in api.KNOWN_CAPABILITIES
-
 
 def _args(**overrides) -> argparse.Namespace:
     values = dict(url="caldav.icloud.com", user=USER, calendars="work", range="today_tomorrow",
@@ -102,19 +100,17 @@ def test_status_without_settings(capsys) -> None:
     assert "Not configured" in capsys.readouterr().out
 
 
-@pytest.mark.skipif(HAS_V12, reason="plugin API 1.2 is installed")
-def test_old_plugin_api_gets_a_clear_message() -> None:
-    with pytest.raises(ManifestError, match=r"plugin API 1\.2"):
+def test_old_plugin_api_gets_a_clear_message(monkeypatch) -> None:
+    import blueferry.plugin_api.manifest as manifest_module
+
+    # A plugin-api 1.4 rejects ApiVersion=1.5; the plugin says what it needs.
+    monkeypatch.setattr(manifest_module, "API_MINOR", 4)
+    monkeypatch.setattr(api, "API_MINOR", 4)
+    with pytest.raises(ManifestError, match=r"plugin API 1\.5"):
         load_manifest(manifest_text())
 
 
-def test_install_activation_writes_manifest_and_service(tmp_path, monkeypatch) -> None:
-    import blueferry.plugin_api.manifest as manifest_module
-
-    # Until blueferry-plugin-api 1.2 is released, teach the parser the two
-    # capabilities the way 1.2 will.
-    monkeypatch.setattr(manifest_module, "KNOWN_CAPABILITIES",
-                        api.KNOWN_CAPABILITIES | {"card", "notify"})
+def test_install_activation_writes_manifest_and_service(tmp_path) -> None:
     written = cli.install_activation(tmp_path)
     manifest = (tmp_path / "blueferry" / "plugins" / f"{PLUGIN_ID}.plugin").read_text()
     assert "serve" in manifest and len(written) == 2

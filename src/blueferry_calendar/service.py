@@ -28,7 +28,7 @@ import dbus.service
 from blueferry.plugin_api.config import ConfigError
 from blueferry.plugin_api.config_flow import MAX_MESSAGE, ConfigTestResult, LoginStep
 from blueferry.plugin_api.manifest import PluginManifest
-from blueferry.plugin_api.service import PluginCallError, PluginService
+from blueferry.plugin_api.service import NotifyService, PluginCallError
 from blueferry_plugin_kit.auth.nextcloud import MESSAGES as LOGIN_MESSAGES
 from blueferry_plugin_kit.auth.nextcloud import Credentials, NextcloudLogin
 from blueferry_plugin_kit.configtest import passed
@@ -287,7 +287,15 @@ def _source(settings: Settings) -> str:
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
 
 
-class CalendarService(PluginService):
+class CalendarService(NotifyService):
+    """Capabilities ``card`` (own GetCardItems/InvokeAction/CardChanged) and
+    ``notify`` (plugin-api 1.5: :meth:`NotifyService.emit_notify` queues the
+    reminder, BlueFerry fetches it with GetPendingNotification after the
+    content-free NotifyChanged). The own InvokeAction overrides the base
+    class's and also answers clicks on a reminder's button (item ``notify``).
+    """
+
+
     def __init__(
         self,
         manifest: PluginManifest,
@@ -572,7 +580,7 @@ class CalendarService(PluginService):
         if event.location:
             body += f" · {event.location}"
         label, action_id = (t("open"), f"open-{event.key}") if event.url else ("", "")
-        self.Notify(event.title, body, "appointment-soon", label, action_id)
+        self.emit_notify(event.title, body, "appointment-soon", label, action_id)
         log.info("reminder shown")
 
     # ---- card ---------------------------------------------------------------------
@@ -989,11 +997,8 @@ class CalendarService(PluginService):
     def CardChanged(self) -> None:
         """Content-free: the core calls GetCardItems again."""
 
-    # ---- D-Bus: capability notify ---------------------------------------------------------
-
-    @dbus.service.signal(SURFACE_INTERFACE, signature="sssss")
-    def Notify(self, title, body, icon, action_label, action_id) -> None:
-        """A reminder; the core shows it under its notification policy."""
+    # Capability notify: NotifyChanged and GetPendingNotification come from
+    # NotifyService (plugin-api 1.5); reminders go out through emit_notify.
 
 
 def _parse(value: str) -> datetime | None:

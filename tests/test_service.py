@@ -1,4 +1,4 @@
-"""The plugin service against a fake v1.2 host and fake CalDAV servers."""
+"""The plugin service against a fake plugin-api 1.5 host and fake CalDAV servers."""
 from __future__ import annotations
 
 import json
@@ -65,11 +65,11 @@ def env(tmp_path) -> Env:
     return Env(tmp_path)
 
 
-def test_manifest_declares_card_notify_and_the_1_3_form() -> None:
+def test_manifest_declares_card_notify_and_api_1_5() -> None:
     manifest = plugin_manifest()
     assert manifest.id == "io.weirdware.blueferry.calendar"
     assert set(manifest.capabilities) == {"card", "notify"}
-    assert manifest.api_minor == 3 and manifest.config_test
+    assert manifest.api_minor == 5 and manifest.config_test
     assert manifest.config_login == "nextcloud"
     fields = {f.key: f for f in manifest.config}
     assert list(fields) == ["use_caldav", "url", "username", "password", "use_ical",
@@ -318,8 +318,41 @@ def test_keyring_fallback_file_is_private(tmp_path) -> None:
 
 def test_surfaces_live_on_plugin1() -> None:
     """Spec "D-Bus placement": no Card1/Notify1, everything on Plugin1."""
-    for name in ("GetCardItems", "InvokeAction", "CardChanged", "Notify"):
+    for name in ("GetCardItems", "InvokeAction", "CardChanged", "NotifyChanged",
+                 "GetPendingNotification"):
         assert getattr(CalendarService, name)._dbus_interface == "io.weirdware.BlueFerry.Plugin1"
+    # plugin-api 1.5: the popup text no longer travels in a signal.
+    assert not hasattr(CalendarService, "Notify")
+    assert CalendarService.NotifyChanged._dbus_signature == ""
+    # The plugin's own InvokeAction (lenient args, also item "notify") wins.
+    assert CalendarService.InvokeAction.__qualname__ == "CalendarService.InvokeAction"
+
+
+def test_reminder_waits_for_get_pending_notification(env) -> None:
+    """plugin-api 1.5: a content-free NotifyChanged, then the host fetches."""
+    env.configure(reminder="15")
+    service, host = env.service()
+    signals: list[tuple] = []
+    service.NotifyChanged = lambda *args: signals.append(args)   # the host does not fetch
+    env.clock.now = datetime(2026, 10, 6, 14, 50, tzinfo=UTC)    # 16:50, call at 17:00
+    service.tick()
+    assert signals == [()] and host.notifications == []
+    pending = json.loads(host._call("GetPendingNotification"))
+    assert pending["more"] is False
+    assert pending["notification"] == {
+        "title": "Call with New York", "body": pending["notification"]["body"],
+        "icon": "appointment-soon", "action_label": "Open",
+        "action_id": pending["notification"]["action_id"],
+    }
+    assert pending["notification"]["body"].startswith("In 10 min")
+    assert pending["notification"]["action_id"].startswith("open-")
+    # Fetched once: the queue is empty now.
+    assert json.loads(host._call("GetPendingNotification")) == {
+        "notification": None, "more": False,
+    }
+    # The button still opens the meeting through the plugin's InvokeAction.
+    reply = host.invoke("notify", pending["notification"]["action_id"])
+    assert reply["open_uri"] == "https://meet.example.org/abc-def"
 
 
 def test_the_form_needs_the_partition_host_confirmed(tmp_path) -> None:

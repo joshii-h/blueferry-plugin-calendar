@@ -1,9 +1,14 @@
-"""Plugin1 v1.2 surfaces (capabilities ``card`` and ``notify``), plugin side.
+"""Plugin1 surfaces (capabilities ``card`` and ``notify``), plugin side.
 
-Written against the shared spec PLUGIN-SURFACES-v1.2. All v1.2 methods and
-signals (GetCardItems, InvokeAction, CardChanged, Notify) live on the
-existing ``io.weirdware.BlueFerry.Plugin1`` interface at the plugin's object
-path; the manifest's capabilities decide which of them the host calls.
+Written against the shared spec PLUGIN-SURFACES-v1.2 and plugin API 1.5.
+The card's methods and signal (GetCardItems, InvokeAction, CardChanged) and
+the popup's (NotifyChanged, GetPendingNotification; from
+``blueferry.plugin_api.service.NotifyService``) live on the existing
+``io.weirdware.BlueFerry.Plugin1`` interface at the plugin's object path;
+the manifest's capabilities decide which of them the host calls. Since API
+1.5 no popup text travels on the bus: the 1.2 signal ``Notify(sssss)`` is
+gone, the host fetches the queued reminder after the content-free
+``NotifyChanged()``.
 """
 from __future__ import annotations
 
@@ -22,7 +27,8 @@ MAX_ACTIONS = 3
 MAX_TITLE = 80
 MAX_SUBTITLE = 160
 MAX_LABEL = 40
-NOTIFY_ITEM = "notify"   # item id the core uses when a notification action is clicked
+NOTIFY_ITEM = "notify"   # item id the core uses when a reminder's button is clicked
+API_MINOR_NEEDED = 5     # NotifyChanged + GetPendingNotification
 ACTION_KINDS = frozenset({"button", "primary"})
 ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_ARGS_BYTES = 16 * 1024
@@ -71,13 +77,13 @@ def parse_args(text: str) -> dict[str, object]:
 
 
 def load_manifest(text: str) -> PluginManifest:
-    """Parse the manifest; explain an API without the v1.2 capabilities."""
+    """Parse the manifest; explain an API older than 1.5."""
     try:
         return parse_manifest(text)
     except ManifestError as error:
-        if CAPABILITY_CARD not in api.KNOWN_CAPABILITIES:
+        if getattr(api, "API_MINOR", 0) < API_MINOR_NEEDED:
             raise ManifestError(
-                "this blueferry-plugin-api does not know the card and notify capabilities; "
-                "the calendar plugin needs plugin API 1.2"
+                "this blueferry-plugin-api is too old (no NotifyChanged popups); "
+                "the calendar plugin needs plugin API 1.5"
             ) from error
         raise

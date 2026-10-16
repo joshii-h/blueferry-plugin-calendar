@@ -1,4 +1,4 @@
-"""Test doubles: a CalDAV server from fixtures, a keyring and a v1.2 host.
+"""Test doubles: a CalDAV server from fixtures, a keyring and a plugin-api 1.5 host.
 
 ``FakeServer`` replays ``fixtures/<server>/routes.json``: ``"METHOD URL"``
 maps to a status, headers and a body file. The bodies are modelled on what
@@ -9,15 +9,16 @@ the servers' documented behaviour, not captured from live accounts.
 ``{{raw:NAME}}`` by the raw text (for CDATA sections).
 
 ``FakeSecret`` and ``FakeHost`` come from ``blueferry_plugin_kit.testing``;
-``FakeHost`` plays the BlueFerry core of PLUGIN-SURFACES-v1.2: it calls
+``FakeHost`` plays the BlueFerry core of plugin API 1.5: it calls
 ``GetCardItems``/``InvokeAction`` like the core would, checks every reply
-against the spec, and records the content-free ``CardChanged`` and the
-``Notify`` signals.
+against the spec, records the content-free ``CardChanged``, and on the
+content-free ``NotifyChanged`` fetches each queued reminder with
+``GetPendingNotification`` (``host.notifications``). The removed 1.2 signal
+``Notify`` would be a spec violation.
 """
 from __future__ import annotations
 
 import base64
-import dataclasses
 import hashlib
 import json
 import re
@@ -37,20 +38,8 @@ USER, PASSWORD = "alice", "abcd-efgh-ijkl-mnop"
 
 
 def plugin_manifest():
-    """The shipped manifest, parsed by the real parser.
-
-    blueferry-plugin-api before 1.2 drops the unknown capabilities ``card``
-    and ``notify``; parse with a known one and put them back, so the rest of
-    the manifest (settings schema, ids, commands) is still checked for real.
-    """
-    text = manifest_text()
-    try:
-        return parse_manifest(text)
-    except ValueError:
-        swapped = text.replace("Capabilities=card;notify;", "Capabilities=photos;")
-        return dataclasses.replace(
-            parse_manifest(swapped), capabilities=("card", "notify"), api_minor=2,
-        )
+    """The shipped manifest, parsed by the real parser (plugin API 1.5)."""
+    return parse_manifest(manifest_text())
 
 
 class FakeServer:
@@ -122,19 +111,13 @@ class FakeServer:
 
 
 class FakeHost(testing.FakeHost):
-    """The kit's v1.2 host with the names these tests use, plus the checks
-    the kit leaves out: unique item ids, no empty titles or labels, and a
-    notification's action label and id come together."""
+    """The kit's plugin-api 1.5 host with the names these tests use, plus the
+    card checks the kit leaves out: unique item ids, no empty titles or
+    labels. (The kit checks each fetched reminder itself: a title, and the
+    action label and id come together.)"""
 
     def __init__(self, service, cache_dir: Path) -> None:
         super().__init__(service, cache_roots=[cache_dir])
-
-    def _on_notify(self, *args) -> None:
-        if len(args) == 5:
-            title, _body, _icon, label, action_id = args
-            _check(bool(title), "notify title")
-            _check(bool(label) == bool(action_id), "action label and id come together")
-        super()._on_notify(*args)
 
     def _call(self, method, *args):
         return self.call(method, *args)

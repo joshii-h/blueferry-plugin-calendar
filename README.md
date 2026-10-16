@@ -11,7 +11,7 @@ your next events in the "From plugins" section of the phone card (capability
 Radicale, Baikal and others) and, without any sign-in, with every calendar
 that offers an iCal subscription link, Google Calendar included; with both
 at once if you like. It runs as its own process on the session bus and
-talks to BlueFerry only through `blueferry.plugin_api` (plugin API 1.3, see
+talks to BlueFerry only through `blueferry.plugin_api` (plugin API 1.5, see
 `PLUGINS.md` in the BlueFerry repository).
 
 Card, reminders, action replies, status and settings messages are German or
@@ -30,9 +30,11 @@ will run, and installs only after you confirm. Update with
 `blueferry plugins update io.weirdware.blueferry.calendar`, remove with
 `blueferry plugins remove io.weirdware.blueferry.calendar`.
 
-The plugin needs a BlueFerry with plugin API 1.3 (guided settings form,
-"Test connection", "Sign in with Nextcloud"); older versions ignore its
-manifest. Version 0.1.2 is the last release for plugin API 1.2.
+The plugin needs a BlueFerry with plugin API 1.5 (reminders fetched over
+D-Bus instead of sent in a signal; plus the guided settings form, "Test
+connection" and "Sign in with Nextcloud" of 1.3); older versions ignore its
+manifest. Version 0.4.0 (unreleased) is the first for plugin API 1.5;
+0.3.1 is the last release for plugin API 1.3/1.4 and 0.1.2 the last for 1.2.
 
 ## Configure
 
@@ -154,7 +156,10 @@ Basic and Digest authentication are supported (Baikal uses Digest by default).
 - The card shows at most 8 events. "Open in calendar" appears when the event
   carries an `http(s)` link (for example a meeting URL).
 - Reminders carry the title, time and place; BlueFerry decides under its
-  notification policy whether the content is shown. With reminders on, the
+  notification policy whether the content is shown. The text never travels
+  in a D-Bus signal: the plugin queues the reminder and emits the
+  content-free `NotifyChanged()`, BlueFerry fetches it with
+  `GetPendingNotification()` (plugin API 1.5, `NotifyService.emit_notify`). With reminders on, the
   plugin keeps running instead of exiting when idle.
 - The password goes to the desktop keyring (Secret Service); without one, to
   an owner-only file. It never appears in logs, the manifest, D-Bus replies
