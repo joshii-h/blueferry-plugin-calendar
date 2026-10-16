@@ -33,7 +33,7 @@ will run, and installs only after you confirm. Update with
 The plugin needs a BlueFerry with plugin API 1.5 (reminders fetched over
 D-Bus instead of sent in a signal; plus the guided settings form, "Test
 connection" and "Sign in with Nextcloud" of 1.3); older versions ignore its
-manifest. Version 0.4.0 (unreleased) is the first for plugin API 1.5;
+manifest. Version 0.4.0 (2026-10-16) is the first for plugin API 1.5;
 0.3.1 is the last release for plugin API 1.3/1.4 and 0.1.2 the last for 1.2.
 
 ## Configure
